@@ -1,0 +1,52 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtual environments ──
+.venv/
+venv/
+env/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Environment ──
+.env
+.env.local
+.env.production
+
+# ── Pipeline storage (downloaded PDFs) ──
+pipeline/storage/*
+!pipeline/storage/.gitkeep
+
+# ── Node (frontend) ──
+node_modules/
+.next/
+out/
+
+# ── Testing ──
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# ── Docker ──
+docker-compose.override.yml
+
+# ── Misc ──
+*.log
+*.tmp
+scratch_rendered.html
+

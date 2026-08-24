@@ -1,0 +1,202 @@
+Unit,Topic,Subtopic
+UNIT 1: Number,1.1 Types of number,Identify natural numbers
+UNIT 1: Number,1.1 Types of number,Identify integers
+UNIT 1: Number,1.1 Types of number,Identify prime numbers
+UNIT 1: Number,1.1 Types of number,Identify square numbers
+UNIT 1: Number,1.1 Types of number,Identify cube numbers
+UNIT 1: Number,1.1 Types of number,Identify common factors
+UNIT 1: Number,1.1 Types of number,Identify common multiples
+UNIT 1: Number,1.1 Types of number,Identify rational numbers
+UNIT 1: Number,1.1 Types of number,Identify irrational numbers
+UNIT 1: Number,1.1 Types of number,Identify reciprocals
+UNIT 1: Number,1.2 Sets,Understand set language
+UNIT 1: Number,1.2 Sets,Use set notation
+UNIT 1: Number,1.2 Sets,Use Venn diagrams
+UNIT 1: Number,1.3 Powers and roots,Calculate squares
+UNIT 1: Number,1.3 Powers and roots,Calculate square roots
+UNIT 1: Number,1.3 Powers and roots,Calculate cubes
+UNIT 1: Number,1.3 Powers and roots,Calculate cube roots
+UNIT 1: Number,1.3 Powers and roots,Calculate other powers
+UNIT 1: Number,1.3 Powers and roots,Calculate other roots
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Use proper fractions
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Use improper fractions
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Use mixed numbers
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Use decimals
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Use percentages
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Recognize equivalence
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Convert between forms
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Write fractions simply
+UNIT 1: Number,"1.4 Fractions, decimals and percentages",Use recurring decimals
+UNIT 1: Number,1.5 Ordering,Order by magnitude
+UNIT 1: Number,1.5 Ordering,"Use symbols (=, ≠, >, <, ⩾, ⩽)"
+UNIT 1: Number,1.6 The four operations,Use operations with integers
+UNIT 1: Number,1.6 The four operations,Use operations with fractions
+UNIT 1: Number,1.6 The four operations,Use operations with decimals
+UNIT 1: Number,1.6 The four operations,Order operations correctly
+UNIT 1: Number,1.6 The four operations,Use brackets
+UNIT 1: Number,1.7 Indices I,Understand positive indices
+UNIT 1: Number,1.7 Indices I,Understand zero indices
+UNIT 1: Number,1.7 Indices I,Understand negative indices
+UNIT 1: Number,1.7 Indices I,Understand fractional indices
+UNIT 1: Number,1.7 Indices I,Use rules of indices
+UNIT 1: Number,1.8 Standard form,Use A × 10^n form
+UNIT 1: Number,1.8 Standard form,Convert to standard form
+UNIT 1: Number,1.8 Standard form,Convert from standard form
+UNIT 1: Number,1.8 Standard form,Calculate with standard form
+UNIT 1: Number,1.9 Estimation,Round to accuracy
+UNIT 1: Number,1.9 Estimation,Make estimates
+UNIT 1: Number,1.9 Estimation,Round answers reasonably
+UNIT 1: Number,1.10 Limits of accuracy,Give upper bounds
+UNIT 1: Number,1.10 Limits of accuracy,Give lower bounds
+UNIT 1: Number,1.10 Limits of accuracy,Find bounds of calculations
+UNIT 1: Number,1.11 Ratio and proportion,Give ratios simply
+UNIT 1: Number,1.11 Ratio and proportion,Divide quantity by ratio
+UNIT 1: Number,1.11 Ratio and proportion,Use proportional reasoning
+UNIT 1: Number,1.12 Rates,Use common rates
+UNIT 1: Number,1.12 Rates,Apply other rates
+UNIT 1: Number,1.12 Rates,Solve average speed problems
+UNIT 1: Number,1.13 Percentages,Calculate percentage of quantity
+UNIT 1: Number,1.13 Percentages,Express as percentage
+UNIT 1: Number,1.13 Percentages,Calculate percentage change
+UNIT 1: Number,1.13 Percentages,Calculate simple interest
+UNIT 1: Number,1.13 Percentages,Calculate compound interest
+UNIT 1: Number,1.13 Percentages,Calculate reverse percentages
+UNIT 1: Number,1.14 Using a calculator,Use calculator efficiently
+UNIT 1: Number,1.14 Using a calculator,Enter values appropriately
+UNIT 1: Number,1.14 Using a calculator,Interpret display appropriately
+UNIT 1: Number,1.15 Time,Calculate with time units
+UNIT 1: Number,1.15 Time,Use 24-hour clock
+UNIT 1: Number,1.15 Time,Use 12-hour clock
+UNIT 1: Number,1.15 Time,Read clocks and timetables
+UNIT 1: Number,1.16 Money,Calculate with money
+UNIT 1: Number,1.16 Money,Convert currencies
+UNIT 1: Number,1.17 Exponential growth and decay,Use exponential growth
+UNIT 1: Number,1.17 Exponential growth and decay,Use exponential decay
+UNIT 1: Number,1.18 Surds,Understand surds
+UNIT 1: Number,1.18 Surds,Simplify surd expressions
+UNIT 1: Number,1.18 Surds,Rationalise denominator
+UNIT 2: Algebra and graphs,2.1 Introduction to algebra,Know that letters can be used to represent generalised numbers
+UNIT 2: Algebra and graphs,2.1 Introduction to algebra,Substitute numbers into expressions and formulas
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Simplify expressions by collecting like terms
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Expand products of algebraic expressions
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Factorise by extracting common factors
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Factorise expressions of the form: ax + bx + kay + kby
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Factorise expressions of the form: a²x² – b²y²
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Factorise expressions of the form: a² + 2ab + b²
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Factorise expressions of the form: ax² + bx + c
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Factorise expressions of the form: ax³ + bx² + cx
+UNIT 2: Algebra and graphs,2.2 Algebraic manipulation,Complete the square for expressions in the form ax² + bx + c
+UNIT 2: Algebra and graphs,2.3 Algebraic fractions,Manipulate algebraic fractions
+UNIT 2: Algebra and graphs,2.3 Algebraic fractions,Factorise and simplify rational expressions
+UNIT 2: Algebra and graphs,2.4 Indices II,"Understand and use indices (positive, zero, negative and fractional)"
+UNIT 2: Algebra and graphs,2.4 Indices II,Understand and use the rules of indices
+UNIT 2: Algebra and graphs,2.5 Equations,"Construct expressions, equations and formulas"
+UNIT 2: Algebra and graphs,2.5 Equations,Solve linear equations in one unknown
+UNIT 2: Algebra and graphs,2.5 Equations,Solve fractional equations with numerical and linear algebraic denominators
+UNIT 2: Algebra and graphs,2.5 Equations,Solve simultaneous linear equations in two unknowns
+UNIT 2: Algebra and graphs,2.5 Equations,"Solve quadratic equations by factorisation, completing the square and by use of the quadratic formula"
+UNIT 2: Algebra and graphs,2.5 Equations,Change the subject of formulas
+UNIT 2: Algebra and graphs,2.6 Inequalities,"Represent and interpret inequalities, including on a number line"
+UNIT 2: Algebra and graphs,2.6 Inequalities,"Construct, solve and interpret linear inequalities"
+UNIT 2: Algebra and graphs,2.6 Inequalities,Represent and interpret linear inequalities in two variables graphically
+UNIT 2: Algebra and graphs,2.6 Inequalities,List inequalities that define a given region
+UNIT 2: Algebra and graphs,2.7 Sequences,Continue a given number sequence or pattern
+UNIT 2: Algebra and graphs,2.7 Sequences,"Recognise patterns in sequences, including the term-to-term rule, and relationships between different sequences"
+UNIT 2: Algebra and graphs,2.7 Sequences,Find and use the nth term of sequences
+UNIT 2: Algebra and graphs,2.8 Proportion,Express direct and inverse proportion in algebraic terms and use this form of expression to find unknown quantities
+UNIT 2: Algebra and graphs,2.9 Graphs in practical situations,Use and interpret graphs in practical situations including travel graphs and conversion graphs
+UNIT 2: Algebra and graphs,2.9 Graphs in practical situations,Draw graphs from given data
+UNIT 2: Algebra and graphs,2.9 Graphs in practical situations,"Apply the idea of rate of change to simple kinematics involving distance–time and speed–time graphs, acceleration and deceleration"
+UNIT 2: Algebra and graphs,2.9 Graphs in practical situations,Calculate distance travelled as area under a speed–time graph
+UNIT 2: Algebra and graphs,2.10 Graphs of functions,"Construct tables of values, and draw, recognise and interpret graphs for functions of the following forms: axⁿ (includes sums of no more than three of these)"
+UNIT 2: Algebra and graphs,2.10 Graphs of functions,"Construct tables of values, and draw, recognise and interpret graphs for functions of the following forms: abˣ + c where n = –2, –1, ½–, 0, ½, 1, 2, 3; a and c are rational numbers; and b is a positive integer"
+UNIT 2: Algebra and graphs,2.10 Graphs of functions,"Solve associated equations graphically, including finding and interpreting roots by graphical methods"
+UNIT 2: Algebra and graphs,2.10 Graphs of functions,Draw and interpret graphs representing exponential growth and decay problems
+UNIT 2: Algebra and graphs,2.10 Graphs of functions,Estimate gradients of curves by drawing tangents
+UNIT 2: Algebra and graphs,2.11 Sketching curves,"Recognise, sketch and interpret graphs of the following functions: (a) linear"
+UNIT 2: Algebra and graphs,2.11 Sketching curves,"Recognise, sketch and interpret graphs of the following functions: (b) quadratic"
+UNIT 2: Algebra and graphs,2.11 Sketching curves,"Recognise, sketch and interpret graphs of the following functions: (c) cubic"
+UNIT 2: Algebra and graphs,2.11 Sketching curves,"Recognise, sketch and interpret graphs of the following functions: (d) reciprocal"
+UNIT 2: Algebra and graphs,2.11 Sketching curves,"Recognise, sketch and interpret graphs of the following functions: (e) exponential"
+UNIT 2: Algebra and graphs,2.12 Functions,"Understand functions, domain and range, and use function notation"
+UNIT 2: Algebra and graphs,2.12 Functions,Understand and find inverse functions f⁻¹(x)
+UNIT 2: Algebra and graphs,2.12 Functions,Form composite functions as defined by gf(x) = g(f(x))
+UNIT 3: Coordinate geometry,3.1 Coordinates,Use and interpret Cartesian coordinates in two dimensions
+UNIT 3: Coordinate geometry,3.2 Drawing linear graphs,Draw straight-line graphs for linear equations
+UNIT 3: Coordinate geometry,3.3 Gradient of linear graphs,Find the gradient of a straight line
+UNIT 3: Coordinate geometry,3.3 Gradient of linear graphs,Calculate the gradient of a straight line from the coordinates of two points on it
+UNIT 3: Coordinate geometry,3.4 Length and midpoint,Calculate the length of a line segment
+UNIT 3: Coordinate geometry,3.4 Length and midpoint,Find the coordinates of the midpoint of a line segment
+UNIT 3: Coordinate geometry,3.5 Equations of linear graphs,Interpret and obtain the equation of a straight-line graph
+UNIT 3: Coordinate geometry,3.6 Parallel lines,Find the gradient and equation of a straight line parallel to a given line
+UNIT 3: Coordinate geometry,3.7 Perpendicular lines,Find the gradient and equation of a straight line perpendicular to a given line
+UNIT 4: Geometry,4.1 Geometrical terms,"Use and interpret geometrical terms: point, vertex, line, plane, parallel, perpendicular, perpendicular bisector, bearing, right angle, acute/obtuse/reflex angles, interior/exterior angles, similar, congruent, scale factor"
+UNIT 4: Geometry,4.1 Geometrical terms,"Use and interpret vocabulary of triangles, special quadrilaterals, polygons, nets, solids"
+UNIT 4: Geometry,4.1 Geometrical terms,Use and interpret vocabulary of a circle
+UNIT 4: Geometry,4.2 Geometrical constructions,Measure and draw lines and angles
+UNIT 4: Geometry,4.2 Geometrical constructions,Construct a triangle given lengths of all sides using ruler and compasses
+UNIT 4: Geometry,4.2 Geometrical constructions,"Draw, use and interpret nets"
+UNIT 4: Geometry,4.3 Scale drawings,Draw and interpret scale drawings
+UNIT 4: Geometry,4.3 Scale drawings,Use and interpret three-figure bearings
+UNIT 4: Geometry,4.4 Similarity,Calculate lengths of similar shapes
+UNIT 4: Geometry,4.4 Similarity,Use relationships between lengths/areas of similar shapes and lengths/surface areas/volumes of similar solids
+UNIT 4: Geometry,4.4 Similarity,Solve problems and give simple explanations involving similarity
+UNIT 4: Geometry,4.5 Symmetry,Recognise line symmetry and order of rotational symmetry in two dimensions
+UNIT 4: Geometry,4.5 Symmetry,"Recognise symmetry properties of prisms, cylinders, pyramids and cones"
+UNIT 4: Geometry,4.6 Angles,"Calculate unknown angles using sum of angles at a point (360°), on a straight line (180°), vertically opposite angles equal, triangle sum (180°), quadrilateral sum (360°)"
+UNIT 4: Geometry,4.6 Angles,"Calculate unknown angles for parallel lines: corresponding equal, alternate equal, co-interior sum to 180°"
+UNIT 4: Geometry,4.6 Angles,Know and use angle properties of regular and irregular polygons
+UNIT 4: Geometry,4.7 Circle theorems I,"Calculate unknown angles using circle properties: angle in semicircle 90°, tangent-radius 90°, centre twice circumference, same segment equal, cyclic quadrilateral opposite sum 180°, alternate segment theorem"
+UNIT 4: Geometry,4.8 Circle theorems II,"Use circle symmetry properties: equal chords equidistant from centre, perpendicular bisector of chord through centre, tangents from external point equal"
+UNIT 5: Mensuration,5.1 Units of measure,"Use metric units of mass, length, area, volume, capacity in practical situations and convert quantities"
+UNIT 5: Mensuration,5.2 Area and perimeter,"Carry out calculations involving perimeter and area of rectangle, triangle, parallelogram, trapezium"
+UNIT 5: Mensuration,"5.3 Circles, arcs and sectors",Carry out calculations involving circumference and area of a circle
+UNIT 5: Mensuration,"5.3 Circles, arcs and sectors",Carry out calculations involving arc length and sector area as fractions of circumference and area of circle
+UNIT 5: Mensuration,5.4 Surface area and volume,"Carry out calculations and solve problems involving surface area and volume of cuboid, prism, cylinder, sphere, pyramid, cone"
+UNIT 5: Mensuration,5.5 Compound shapes and parts of shapes,Carry out calculations and solve problems involving perimeters and areas of compound shapes and parts of shapes
+UNIT 5: Mensuration,5.5 Compound shapes and parts of shapes,Carry out calculations and solve problems involving surface areas and volumes of compound solids and parts of solids
+UNIT 6: Trigonometry,6.1 Pythagoras’ theorem,Know and use Pythagoras’ theorem
+UNIT 6: Trigonometry,6.2 Right-angled triangles,"Know and use sine, cosine, tangent ratios for acute angles in right-angled triangle calculations"
+UNIT 6: Trigonometry,6.2 Right-angled triangles,Solve problems in two dimensions using Pythagoras’ theorem and trigonometry
+UNIT 6: Trigonometry,6.2 Right-angled triangles,Know perpendicular distance from point to line is shortest distance
+UNIT 6: Trigonometry,6.2 Right-angled triangles,Carry out calculations involving angles of elevation and depression
+UNIT 6: Trigonometry,6.3 Non-right-angled triangles,Use sine and cosine rules in calculations involving lengths and angles for any triangle
+UNIT 6: Trigonometry,6.3 Non-right-angled triangles,Use area of triangle formula (1/2 ab sin C)
+UNIT 6: Trigonometry,6.4 Pythagoras’ theorem and trigonometry in 3D,"Carry out calculations and solve problems in three dimensions using Pythagoras’ theorem and trigonometry, including angle between line and plane"
+UNIT 7: Transformations and vectors,7.1 Transformations,"Recognise, describe and draw reflection of shape in straight line"
+UNIT 7: Transformations and vectors,7.1 Transformations,"Recognise, describe and draw rotation of shape about centre through multiples of 90°"
+UNIT 7: Transformations and vectors,7.1 Transformations,"Recognise, describe and draw enlargement of shape from centre by scale factor"
+UNIT 7: Transformations and vectors,7.1 Transformations,"Recognise, describe and draw translation of shape by vector"
+UNIT 7: Transformations and vectors,7.2 Vectors in two dimensions,Describe translation using vector
+UNIT 7: Transformations and vectors,7.2 Vectors in two dimensions,Add and subtract vectors
+UNIT 7: Transformations and vectors,7.2 Vectors in two dimensions,Multiply vector by scalar
+UNIT 7: Transformations and vectors,7.3 Magnitude of a vector,Calculate magnitude of vector as sqrt(x² + y²)
+UNIT 7: Transformations and vectors,7.4 Vector geometry,Represent vectors by directed line segments
+UNIT 7: Transformations and vectors,7.4 Vector geometry,Use position vectors
+UNIT 7: Transformations and vectors,7.4 Vector geometry,Use sum and difference of vectors to express given vectors in terms of two coplanar vectors
+UNIT 7: Transformations and vectors,7.4 Vector geometry,Use vectors to reason and solve geometric problems
+UNIT 8: Probability,8.1 Introduction to probability,Understand and use probability scale from 0 to 1
+UNIT 8: Probability,8.1 Introduction to probability,Understand and use probability notation
+UNIT 8: Probability,8.1 Introduction to probability,Calculate probability of single event
+UNIT 8: Probability,8.1 Introduction to probability,Understand probability of event not occurring = 1 – probability of occurring
+UNIT 8: Probability,8.2 Relative and expected frequencies,Understand relative frequency as estimate of probability
+UNIT 8: Probability,8.2 Relative and expected frequencies,Calculate expected frequencies
+UNIT 8: Probability,8.3 Probability of combined events,"Calculate probability of combined events using sample space diagrams, Venn diagrams, tree diagrams"
+UNIT 9: Statistics,9.1 Classifying statistical data,Classify and tabulate statistical data
+UNIT 9: Statistics,9.2 Interpreting statistical data,"Read, interpret and draw inferences from tables and statistical diagrams"
+UNIT 9: Statistics,9.2 Interpreting statistical data,"Compare sets of data using tables, graphs and statistical measures"
+UNIT 9: Statistics,9.2 Interpreting statistical data,Appreciate restrictions on drawing conclusions from given data
+UNIT 9: Statistics,9.3 Averages and measures of spread,"Calculate mean, median, mode and range for individual data and distinguish purposes"
+UNIT 9: Statistics,9.3 Averages and measures of spread,Calculate estimate of mean for grouped discrete or continuous data
+UNIT 9: Statistics,9.3 Averages and measures of spread,Identify modal class from grouped frequency distribution
+UNIT 9: Statistics,9.4 Statistical charts and diagrams,Draw and interpret bar charts
+UNIT 9: Statistics,9.4 Statistical charts and diagrams,Draw and interpret pie charts
+UNIT 9: Statistics,9.4 Statistical charts and diagrams,Draw and interpret pictograms
+UNIT 9: Statistics,9.4 Statistical charts and diagrams,Draw and interpret simple frequency distributions
+UNIT 9: Statistics,9.5 Scatter diagrams,Draw and interpret scatter diagrams
+UNIT 9: Statistics,9.5 Scatter diagrams,"Understand positive, negative and zero correlation"
+UNIT 9: Statistics,9.5 Scatter diagrams,"Draw by eye, interpret and use straight line of best fit"
+UNIT 9: Statistics,9.6 Cumulative frequency diagrams,Draw and interpret cumulative frequency tables and diagrams
+UNIT 9: Statistics,9.6 Cumulative frequency diagrams,"Estimate and interpret median, percentiles, quartiles and interquartile range from cumulative frequency diagrams"
+UNIT 9: Statistics,9.7 Histograms,Draw and interpret histograms
+UNIT 9: Statistics,9.7 Histograms,Calculate with frequency density

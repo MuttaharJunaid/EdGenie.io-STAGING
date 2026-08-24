@@ -1,0 +1,2407 @@
+{
+  "o-level": {
+    "7707": {
+      "title": "Accounting (7707)",
+      "full_slug": "o-level-accounting-7707",
+      "subject_slug": "accounting-7707",
+      "code": "7707",
+      "level": "o-level"
+    },
+    "accounting-7707": {
+      "title": "Accounting (7707)",
+      "full_slug": "o-level-accounting-7707",
+      "subject_slug": "accounting-7707",
+      "code": "7707",
+      "level": "o-level"
+    },
+    "5038": {
+      "title": "Agriculture (5038)",
+      "full_slug": "o-level-agriculture-5038",
+      "subject_slug": "agriculture-5038",
+      "code": "5038",
+      "level": "o-level"
+    },
+    "agriculture-5038": {
+      "title": "Agriculture (5038)",
+      "full_slug": "o-level-agriculture-5038",
+      "subject_slug": "agriculture-5038",
+      "code": "5038",
+      "level": "o-level"
+    },
+    "3180": {
+      "title": "Arabic (3180)",
+      "full_slug": "o-level-arabic-3180",
+      "subject_slug": "arabic-3180",
+      "code": "3180",
+      "level": "o-level"
+    },
+    "arabic-3180": {
+      "title": "Arabic (3180)",
+      "full_slug": "o-level-arabic-3180",
+      "subject_slug": "arabic-3180",
+      "code": "3180",
+      "level": "o-level"
+    },
+    "6010": {
+      "title": "Art (6010)",
+      "full_slug": "o-level-art-6010",
+      "subject_slug": "art-6010",
+      "code": "6010",
+      "level": "o-level"
+    },
+    "art-6010": {
+      "title": "Art (6010)",
+      "full_slug": "o-level-art-6010",
+      "subject_slug": "art-6010",
+      "code": "6010",
+      "level": "o-level"
+    },
+    "6090": {
+      "title": "Art and Design (6090)",
+      "full_slug": "o-level-art-and-design-6090",
+      "subject_slug": "art-and-design-6090",
+      "code": "6090",
+      "level": "o-level"
+    },
+    "art-and-design-6090": {
+      "title": "Art and Design (6090)",
+      "full_slug": "o-level-art-and-design-6090",
+      "subject_slug": "art-and-design-6090",
+      "code": "6090",
+      "level": "o-level"
+    },
+    "7094": {
+      "title": "Bangladesh Studies (7094)",
+      "full_slug": "o-level-bangladesh-studies-7094",
+      "subject_slug": "bangladesh-studies-7094",
+      "code": "7094",
+      "level": "o-level"
+    },
+    "bangladesh-studies-7094": {
+      "title": "Bangladesh Studies (7094)",
+      "full_slug": "o-level-bangladesh-studies-7094",
+      "subject_slug": "bangladesh-studies-7094",
+      "code": "7094",
+      "level": "o-level"
+    },
+    "3204": {
+      "title": "Bengali (3204)",
+      "full_slug": "o-level-bengali-3204",
+      "subject_slug": "bengali-3204",
+      "code": "3204",
+      "level": "o-level"
+    },
+    "bengali-3204": {
+      "title": "Bengali (3204)",
+      "full_slug": "o-level-bengali-3204",
+      "subject_slug": "bengali-3204",
+      "code": "3204",
+      "level": "o-level"
+    },
+    "2035": {
+      "title": "Biblical Studies-2035",
+      "full_slug": "o-level-biblical-studies-2035",
+      "subject_slug": "biblical-studies-2035",
+      "code": "2035",
+      "level": "o-level"
+    },
+    "biblical-studies-2035": {
+      "title": "Biblical Studies-2035",
+      "full_slug": "o-level-biblical-studies-2035",
+      "subject_slug": "biblical-studies-2035",
+      "code": "2035",
+      "level": "o-level"
+    },
+    "5090": {
+      "title": "Biology (5090)",
+      "full_slug": "o-level-biology-5090",
+      "subject_slug": "biology-5090",
+      "code": "5090",
+      "level": "o-level"
+    },
+    "biology-5090": {
+      "title": "Biology (5090)",
+      "full_slug": "o-level-biology-5090",
+      "subject_slug": "biology-5090",
+      "code": "5090",
+      "level": "o-level"
+    },
+    "7115": {
+      "title": "Business Studies (7115)",
+      "full_slug": "o-level-business-studies-7115",
+      "subject_slug": "business-studies-7115",
+      "code": "7115",
+      "level": "o-level"
+    },
+    "business-studies-7115": {
+      "title": "Business Studies (7115)",
+      "full_slug": "o-level-business-studies-7115",
+      "subject_slug": "business-studies-7115",
+      "code": "7115",
+      "level": "o-level"
+    },
+    "7048": {
+      "title": "Design and Communication-7048",
+      "full_slug": "o-level-design-and-communication-7048",
+      "subject_slug": "design-and-communication-7048",
+      "code": "7048",
+      "level": "o-level"
+    },
+    "cdt-design-and-communication-7048": {
+      "title": "CDT Design and Communication (7048)",
+      "full_slug": "o-level-cdt-design-and-communication-7048",
+      "subject_slug": "cdt-design-and-communication-7048",
+      "code": "7048",
+      "level": "o-level"
+    },
+    "5070": {
+      "title": "Chemistry (5070)",
+      "full_slug": "o-level-chemistry-5070",
+      "subject_slug": "chemistry-5070",
+      "code": "5070",
+      "level": "o-level"
+    },
+    "chemistry-5070": {
+      "title": "Chemistry (5070)",
+      "full_slug": "o-level-chemistry-5070",
+      "subject_slug": "chemistry-5070",
+      "code": "5070",
+      "level": "o-level"
+    },
+    "7100": {
+      "title": "Commerce (7100)",
+      "full_slug": "o-level-commerce-7100",
+      "subject_slug": "commerce-7100",
+      "code": "7100",
+      "level": "o-level"
+    },
+    "commerce-7100": {
+      "title": "Commerce (7100)",
+      "full_slug": "o-level-commerce-7100",
+      "subject_slug": "commerce-7100",
+      "code": "7100",
+      "level": "o-level"
+    },
+    "7101": {
+      "title": "Commercial Studies (7101)",
+      "full_slug": "o-level-commercial-studies-7101",
+      "subject_slug": "commercial-studies-7101",
+      "code": "7101",
+      "level": "o-level"
+    },
+    "commercial-studies-7101": {
+      "title": "Commercial Studies (7101)",
+      "full_slug": "o-level-commercial-studies-7101",
+      "subject_slug": "commercial-studies-7101",
+      "code": "7101",
+      "level": "o-level"
+    },
+    "2210": {
+      "title": "Computer Science - 2210",
+      "full_slug": "o-level-computer-science-2210",
+      "subject_slug": "computer-science-2210",
+      "code": "2210",
+      "level": "o-level"
+    },
+    "computer-science-2210": {
+      "title": "Computer Science - 2210",
+      "full_slug": "o-level-computer-science-2210",
+      "subject_slug": "computer-science-2210",
+      "code": "2210",
+      "level": "o-level"
+    },
+    "7010": {
+      "title": "Computer Studies (7010)",
+      "full_slug": "o-level-computer-studies-7010",
+      "subject_slug": "computer-studies-7010",
+      "code": "7010",
+      "level": "o-level"
+    },
+    "computer-studies-7010": {
+      "title": "Computer Studies (7010)",
+      "full_slug": "o-level-computer-studies-7010",
+      "subject_slug": "computer-studies-7010",
+      "code": "7010",
+      "level": "o-level"
+    },
+    "design-and-communication-7048": {
+      "title": "Design and Communication-7048",
+      "full_slug": "o-level-design-and-communication-7048",
+      "subject_slug": "design-and-communication-7048",
+      "code": "7048",
+      "level": "o-level"
+    },
+    "6043": {
+      "title": "Design and Technology (6043)",
+      "full_slug": "o-level-design-and-technology-6043",
+      "subject_slug": "design-and-technology-6043",
+      "code": "6043",
+      "level": "o-level"
+    },
+    "design-and-technology-6043": {
+      "title": "Design and Technology (6043)",
+      "full_slug": "o-level-design-and-technology-6043",
+      "subject_slug": "design-and-technology-6043",
+      "code": "6043",
+      "level": "o-level"
+    },
+    "2281": {
+      "title": "Economics (2281)",
+      "full_slug": "o-level-economics-2281",
+      "subject_slug": "economics-2281",
+      "code": "2281",
+      "level": "o-level"
+    },
+    "economics-2281": {
+      "title": "Economics (2281)",
+      "full_slug": "o-level-economics-2281",
+      "subject_slug": "economics-2281",
+      "code": "2281",
+      "level": "o-level"
+    },
+    "1123": {
+      "title": "English Language (1123)",
+      "full_slug": "o-level-english-language-1123",
+      "subject_slug": "english-language-1123",
+      "code": "1123",
+      "level": "o-level"
+    },
+    "english-language-1123": {
+      "title": "English Language (1123)",
+      "full_slug": "o-level-english-language-1123",
+      "subject_slug": "english-language-1123",
+      "code": "1123",
+      "level": "o-level"
+    },
+    "5014": {
+      "title": "Environmental Management (5014)",
+      "full_slug": "o-level-environmental-management-5014",
+      "subject_slug": "environmental-management-5014",
+      "code": "5014",
+      "level": "o-level"
+    },
+    "environmental-management-5014": {
+      "title": "Environmental Management (5014)",
+      "full_slug": "o-level-environmental-management-5014",
+      "subject_slug": "environmental-management-5014",
+      "code": "5014",
+      "level": "o-level"
+    },
+    "6050": {
+      "title": "Fashion and Fabrics - 6050",
+      "full_slug": "o-level-fashion-and-fabrics-6050",
+      "subject_slug": "fashion-and-fabrics-6050",
+      "code": "6050",
+      "level": "o-level"
+    },
+    "fashion-and-fabrics-6050": {
+      "title": "Fashion and Fabrics - 6050",
+      "full_slug": "o-level-fashion-and-fabrics-6050",
+      "subject_slug": "fashion-and-fabrics-6050",
+      "code": "6050",
+      "level": "o-level"
+    },
+    "6130": {
+      "title": "Fashion and Textiles - 6130",
+      "full_slug": "o-level-fashion-and-textiles-6130",
+      "subject_slug": "fashion-and-textiles-6130",
+      "code": "6130",
+      "level": "o-level"
+    },
+    "fashion-and-textiles-6130": {
+      "title": "Fashion and Textiles - 6130",
+      "full_slug": "o-level-fashion-and-textiles-6130",
+      "subject_slug": "fashion-and-textiles-6130",
+      "code": "6130",
+      "level": "o-level"
+    },
+    "6065": {
+      "title": "Food and Nutrition (6065)",
+      "full_slug": "o-level-food-and-nutrition-6065",
+      "subject_slug": "food-and-nutrition-6065",
+      "code": "6065",
+      "level": "o-level"
+    },
+    "food-and-nutrition-6065": {
+      "title": "Food and Nutrition (6065)",
+      "full_slug": "o-level-food-and-nutrition-6065",
+      "subject_slug": "food-and-nutrition-6065",
+      "code": "6065",
+      "level": "o-level"
+    },
+    "3015": {
+      "title": "French (3015)",
+      "full_slug": "o-level-french-3015",
+      "subject_slug": "french-3015",
+      "code": "3015",
+      "level": "o-level"
+    },
+    "french-3015": {
+      "title": "French (3015)",
+      "full_slug": "o-level-french-3015",
+      "subject_slug": "french-3015",
+      "code": "3015",
+      "level": "o-level"
+    },
+    "2217": {
+      "title": "Geography (2217)",
+      "full_slug": "o-level-geography-2217",
+      "subject_slug": "geography-2217",
+      "code": "2217",
+      "level": "o-level"
+    },
+    "geography-2217": {
+      "title": "Geography (2217)",
+      "full_slug": "o-level-geography-2217",
+      "subject_slug": "geography-2217",
+      "code": "2217",
+      "level": "o-level"
+    },
+    "3025": {
+      "title": "German (3025)",
+      "full_slug": "o-level-german-3025",
+      "subject_slug": "german-3025",
+      "code": "3025",
+      "level": "o-level"
+    },
+    "german-3025": {
+      "title": "German (3025)",
+      "full_slug": "o-level-german-3025",
+      "subject_slug": "german-3025",
+      "code": "3025",
+      "level": "o-level"
+    },
+    "2069": {
+      "title": "Global Perspectives - 2069",
+      "full_slug": "o-level-global-perspectives-2069",
+      "subject_slug": "global-perspectives-2069",
+      "code": "2069",
+      "level": "o-level"
+    },
+    "global-perspectives-2069": {
+      "title": "Global Perspectives - 2069",
+      "full_slug": "o-level-global-perspectives-2069",
+      "subject_slug": "global-perspectives-2069",
+      "code": "2069",
+      "level": "o-level"
+    },
+    "3195": {
+      "title": "Hindi (3195)",
+      "full_slug": "o-level-hindi-3195",
+      "subject_slug": "hindi-3195",
+      "code": "3195",
+      "level": "o-level"
+    },
+    "hindi-3195": {
+      "title": "Hindi (3195)",
+      "full_slug": "o-level-hindi-3195",
+      "subject_slug": "hindi-3195",
+      "code": "3195",
+      "level": "o-level"
+    },
+    "2055": {
+      "title": "Hinduism (2055)",
+      "full_slug": "o-level-hinduism-2055",
+      "subject_slug": "hinduism-2055",
+      "code": "2055",
+      "level": "o-level"
+    },
+    "hinduism-2055": {
+      "title": "Hinduism (2055)",
+      "full_slug": "o-level-hinduism-2055",
+      "subject_slug": "hinduism-2055",
+      "code": "2055",
+      "level": "o-level"
+    },
+    "2147": {
+      "title": "History (2147)",
+      "full_slug": "o-level-history-2147",
+      "subject_slug": "history-2147",
+      "code": "2147",
+      "level": "o-level"
+    },
+    "history-2147": {
+      "title": "History (2147)",
+      "full_slug": "o-level-history-2147",
+      "subject_slug": "history-2147",
+      "code": "2147",
+      "level": "o-level"
+    },
+    "2134": {
+      "title": "History (Modern World Affairs) - 2134",
+      "full_slug": "o-level-history-modern-world-affairs-2134",
+      "subject_slug": "history-modern-world-affairs-2134",
+      "code": "2134",
+      "level": "o-level"
+    },
+    "history-modern-world-affairs-2134": {
+      "title": "History (Modern World Affairs) - 2134",
+      "full_slug": "o-level-history-modern-world-affairs-2134",
+      "subject_slug": "history-modern-world-affairs-2134",
+      "code": "2134",
+      "level": "o-level"
+    },
+    "2158": {
+      "title": "History World Affairs, 1917-1991 (2158)",
+      "full_slug": "o-level-history-world-affairs-1917-1991-2158",
+      "subject_slug": "history-world-affairs-1917-1991-2158",
+      "code": "2158",
+      "level": "o-level"
+    },
+    "history-world-affairs-1917-1991-2158": {
+      "title": "History World Affairs, 1917-1991 (2158)",
+      "full_slug": "o-level-history-world-affairs-1917-1991-2158",
+      "subject_slug": "history-world-affairs-1917-1991-2158",
+      "code": "2158",
+      "level": "o-level"
+    },
+    "5096": {
+      "title": "Human and Social Biology (5096)",
+      "full_slug": "o-level-human-and-social-biology-5096",
+      "subject_slug": "human-and-social-biology-5096",
+      "code": "5096",
+      "level": "o-level"
+    },
+    "human-and-social-biology-5096": {
+      "title": "Human and Social Biology (5096)",
+      "full_slug": "o-level-human-and-social-biology-5096",
+      "subject_slug": "human-and-social-biology-5096",
+      "code": "5096",
+      "level": "o-level"
+    },
+    "2056": {
+      "title": "Islamic Religion and Culture (2056)",
+      "full_slug": "o-level-islamic-religion-and-culture-2056",
+      "subject_slug": "islamic-religion-and-culture-2056",
+      "code": "2056",
+      "level": "o-level"
+    },
+    "islamic-religion-and-culture-2056": {
+      "title": "Islamic Religion and Culture (2056)",
+      "full_slug": "o-level-islamic-religion-and-culture-2056",
+      "subject_slug": "islamic-religion-and-culture-2056",
+      "code": "2056",
+      "level": "o-level"
+    },
+    "2068": {
+      "title": "Islamic-Studies-2068",
+      "full_slug": "o-level-islamic-studies-2068",
+      "subject_slug": "islamic-studies-2068",
+      "code": "2068",
+      "level": "o-level"
+    },
+    "islamic-studies-2068": {
+      "title": "Islamic-Studies-2068",
+      "full_slug": "o-level-islamic-studies-2068",
+      "subject_slug": "islamic-studies-2068",
+      "code": "2068",
+      "level": "o-level"
+    },
+    "2058": {
+      "title": "Islamiyat (2058)",
+      "full_slug": "o-level-islamiyat-2058",
+      "subject_slug": "islamiyat-2058",
+      "code": "2058",
+      "level": "o-level"
+    },
+    "islamiyat-2058": {
+      "title": "Islamiyat (2058)",
+      "full_slug": "o-level-islamiyat-2058",
+      "subject_slug": "islamiyat-2058",
+      "code": "2058",
+      "level": "o-level"
+    },
+    "2010": {
+      "title": "Literature in English (2010)",
+      "full_slug": "o-level-literature-in-english-2010",
+      "subject_slug": "literature-in-english-2010",
+      "code": "2010",
+      "level": "o-level"
+    },
+    "literature-in-english-2010": {
+      "title": "Literature in English (2010)",
+      "full_slug": "o-level-literature-in-english-2010",
+      "subject_slug": "literature-in-english-2010",
+      "code": "2010",
+      "level": "o-level"
+    },
+    "5180": {
+      "title": "Marine Science- 5180",
+      "full_slug": "o-level-marine-science5180",
+      "subject_slug": "marine-science5180",
+      "code": "5180",
+      "level": "o-level"
+    },
+    "marine-science5180": {
+      "title": "Marine Science- 5180",
+      "full_slug": "o-level-marine-science5180",
+      "subject_slug": "marine-science5180",
+      "code": "5180",
+      "level": "o-level"
+    },
+    "4037": {
+      "title": "Mathematics - Additional (4037)",
+      "full_slug": "o-level-mathematics-additional-4037",
+      "subject_slug": "mathematics-additional-4037",
+      "code": "4037",
+      "level": "o-level"
+    },
+    "mathematics-additional-4037": {
+      "title": "Mathematics - Additional (4037)",
+      "full_slug": "o-level-mathematics-additional-4037",
+      "subject_slug": "mathematics-additional-4037",
+      "code": "4037",
+      "level": "o-level"
+    },
+    "4024": {
+      "title": "Mathematics D (Calculator Version) (4024)",
+      "full_slug": "o-level-mathematics-d-calculator-version-4024",
+      "subject_slug": "mathematics-d-calculator-version-4024",
+      "code": "4024",
+      "level": "o-level"
+    },
+    "mathematics-d-calculator-version-4024": {
+      "title": "Mathematics D (Calculator Version) (4024)",
+      "full_slug": "o-level-mathematics-d-calculator-version-4024",
+      "subject_slug": "mathematics-d-calculator-version-4024",
+      "code": "4024",
+      "level": "o-level"
+    },
+    "3202": {
+      "title": "Nepali (3202)",
+      "full_slug": "o-level-nepali-3202",
+      "subject_slug": "nepali-3202",
+      "code": "3202",
+      "level": "o-level"
+    },
+    "nepali-3202": {
+      "title": "Nepali (3202)",
+      "full_slug": "o-level-nepali-3202",
+      "subject_slug": "nepali-3202",
+      "code": "3202",
+      "level": "o-level"
+    },
+    "2059": {
+      "title": "Pakistan Studies (2059)",
+      "full_slug": "o-level-pakistan-studies-2059",
+      "subject_slug": "pakistan-studies-2059",
+      "code": "2059",
+      "level": "o-level"
+    },
+    "pakistan-studies-2059": {
+      "title": "Pakistan Studies (2059)",
+      "full_slug": "o-level-pakistan-studies-2059",
+      "subject_slug": "pakistan-studies-2059",
+      "code": "2059",
+      "level": "o-level"
+    },
+    "5054": {
+      "title": "Physics (5054)",
+      "full_slug": "o-level-physics-5054",
+      "subject_slug": "physics-5054",
+      "code": "5054",
+      "level": "o-level"
+    },
+    "physics-5054": {
+      "title": "Physics (5054)",
+      "full_slug": "o-level-physics-5054",
+      "subject_slug": "physics-5054",
+      "code": "5054",
+      "level": "o-level"
+    },
+    "7110": {
+      "title": "Principles of Accounts (7110)",
+      "full_slug": "o-level-principles-of-accounts-7110",
+      "subject_slug": "principles-of-accounts-7110",
+      "code": "7110",
+      "level": "o-level"
+    },
+    "principles-of-accounts-7110": {
+      "title": "Principles of Accounts (7110)",
+      "full_slug": "o-level-principles-of-accounts-7110",
+      "subject_slug": "principles-of-accounts-7110",
+      "code": "7110",
+      "level": "o-level"
+    },
+    "2048": {
+      "title": "Religious Studies (2048)",
+      "full_slug": "o-level-religious-studies-2048",
+      "subject_slug": "religious-studies-2048",
+      "code": "2048",
+      "level": "o-level"
+    },
+    "religious-studies-2048": {
+      "title": "Religious Studies (2048)",
+      "full_slug": "o-level-religious-studies-2048",
+      "subject_slug": "religious-studies-2048",
+      "code": "2048",
+      "level": "o-level"
+    },
+    "5129": {
+      "title": "Science - Combined (5129)",
+      "full_slug": "o-level-science-combined-5129",
+      "subject_slug": "science-combined-5129",
+      "code": "5129",
+      "level": "o-level"
+    },
+    "science-combined-5129": {
+      "title": "Science - Combined (5129)",
+      "full_slug": "o-level-science-combined-5129",
+      "subject_slug": "science-combined-5129",
+      "code": "5129",
+      "level": "o-level"
+    },
+    "3158": {
+      "title": "Setswana (3158)",
+      "full_slug": "o-level-setswana-3158",
+      "subject_slug": "setswana-3158",
+      "code": "3158",
+      "level": "o-level"
+    },
+    "setswana-3158": {
+      "title": "Setswana (3158)",
+      "full_slug": "o-level-setswana-3158",
+      "subject_slug": "setswana-3158",
+      "code": "3158",
+      "level": "o-level"
+    },
+    "3205": {
+      "title": "Sinhala (3205)",
+      "full_slug": "o-level-sinhala-3205",
+      "subject_slug": "sinhala-3205",
+      "code": "3205",
+      "level": "o-level"
+    },
+    "sinhala-3205": {
+      "title": "Sinhala (3205)",
+      "full_slug": "o-level-sinhala-3205",
+      "subject_slug": "sinhala-3205",
+      "code": "3205",
+      "level": "o-level"
+    },
+    "2251": {
+      "title": "Sociology (2251)",
+      "full_slug": "o-level-sociology-2251",
+      "subject_slug": "sociology-2251",
+      "code": "2251",
+      "level": "o-level"
+    },
+    "sociology-2251": {
+      "title": "Sociology (2251)",
+      "full_slug": "o-level-sociology-2251",
+      "subject_slug": "sociology-2251",
+      "code": "2251",
+      "level": "o-level"
+    },
+    "3035": {
+      "title": "Spanish (3035)",
+      "full_slug": "o-level-spanish-3035",
+      "subject_slug": "spanish-3035",
+      "code": "3035",
+      "level": "o-level"
+    },
+    "spanish-3035": {
+      "title": "Spanish (3035)",
+      "full_slug": "o-level-spanish-3035",
+      "subject_slug": "spanish-3035",
+      "code": "3035",
+      "level": "o-level"
+    },
+    "4040": {
+      "title": "Statistics (4040)",
+      "full_slug": "o-level-statistics-4040",
+      "subject_slug": "statistics-4040",
+      "code": "4040",
+      "level": "o-level"
+    },
+    "statistics-4040": {
+      "title": "Statistics (4040)",
+      "full_slug": "o-level-statistics-4040",
+      "subject_slug": "statistics-4040",
+      "code": "4040",
+      "level": "o-level"
+    },
+    "3162": {
+      "title": "Swahili (3162)",
+      "full_slug": "o-level-swahili-3162",
+      "subject_slug": "swahili-3162",
+      "code": "3162",
+      "level": "o-level"
+    },
+    "swahili-3162": {
+      "title": "Swahili (3162)",
+      "full_slug": "o-level-swahili-3162",
+      "subject_slug": "swahili-3162",
+      "code": "3162",
+      "level": "o-level"
+    },
+    "3206": {
+      "title": "Tamil (3206)",
+      "full_slug": "o-level-tamil-3206",
+      "subject_slug": "tamil-3206",
+      "code": "3206",
+      "level": "o-level"
+    },
+    "tamil-3206": {
+      "title": "Tamil (3206)",
+      "full_slug": "o-level-tamil-3206",
+      "subject_slug": "tamil-3206",
+      "code": "3206",
+      "level": "o-level"
+    },
+    "3226": {
+      "title": "Tamil (3226)",
+      "full_slug": "o-level-tamil-3226",
+      "subject_slug": "tamil-3226",
+      "code": "3226",
+      "level": "o-level"
+    },
+    "tamil-3226": {
+      "title": "Tamil (3226)",
+      "full_slug": "o-level-tamil-3226",
+      "subject_slug": "tamil-3226",
+      "code": "3226",
+      "level": "o-level"
+    },
+    "7096": {
+      "title": "Travel and Tourism (7096)",
+      "full_slug": "o-level-travel-and-tourism-7096",
+      "subject_slug": "travel-and-tourism-7096",
+      "code": "7096",
+      "level": "o-level"
+    },
+    "travel-and-tourism-7096": {
+      "title": "Travel and Tourism (7096)",
+      "full_slug": "o-level-travel-and-tourism-7096",
+      "subject_slug": "travel-and-tourism-7096",
+      "code": "7096",
+      "level": "o-level"
+    },
+    "3247": {
+      "title": "Urdu - 3247",
+      "full_slug": "o-level-urdu-3247",
+      "subject_slug": "urdu-3247",
+      "code": "3247",
+      "level": "o-level"
+    },
+    "urdu-3247": {
+      "title": "Urdu - 3247",
+      "full_slug": "o-level-urdu-3247",
+      "subject_slug": "urdu-3247",
+      "code": "3247",
+      "level": "o-level"
+    },
+    "3248": {
+      "title": "Urdu - 3248",
+      "full_slug": "o-level-urdu-3248",
+      "subject_slug": "urdu-3248",
+      "code": "3248",
+      "level": "o-level"
+    },
+    "urdu-3248": {
+      "title": "Urdu - 3248",
+      "full_slug": "o-level-urdu-3248",
+      "subject_slug": "urdu-3248",
+      "code": "3248",
+      "level": "o-level"
+    }
+  },
+  "as-and-a-level": {
+    "9706": {
+      "title": "Accounting - 9706",
+      "full_slug": "as-and-a-level-accounting-9706",
+      "subject_slug": "accounting-9706",
+      "code": "9706",
+      "level": "as-and-a-level"
+    },
+    "accounting-9706": {
+      "title": "Accounting - 9706",
+      "full_slug": "as-and-a-level-accounting-9706",
+      "subject_slug": "accounting-9706",
+      "code": "9706",
+      "level": "as-and-a-level"
+    },
+    "8679": {
+      "title": "Afrikaan - 8679",
+      "full_slug": "as-and-a-level-afrikaan-8679",
+      "subject_slug": "afrikaan-8679",
+      "code": "8679",
+      "level": "as-and-a-level"
+    },
+    "afrikaan-8679": {
+      "title": "Afrikaan - 8679",
+      "full_slug": "as-and-a-level-afrikaan-8679",
+      "subject_slug": "afrikaan-8679",
+      "code": "8679",
+      "level": "as-and-a-level"
+    },
+    "8779": {
+      "title": "Afrikaans - 8779",
+      "full_slug": "as-and-a-level-afrikaans-8779",
+      "subject_slug": "afrikaans-8779",
+      "code": "8779",
+      "level": "as-and-a-level"
+    },
+    "afrikaans-8779": {
+      "title": "Afrikaans - 8779",
+      "full_slug": "as-and-a-level-afrikaans-8779",
+      "subject_slug": "afrikaans-8779",
+      "code": "8779",
+      "level": "as-and-a-level"
+    },
+    "9679": {
+      "title": "Afrikaans - 9679",
+      "full_slug": "as-and-a-level-afrikaans-9679",
+      "subject_slug": "afrikaans-9679",
+      "code": "9679",
+      "level": "as-and-a-level"
+    },
+    "afrikaans-9679": {
+      "title": "Afrikaans - 9679",
+      "full_slug": "as-and-a-level-afrikaans-9679",
+      "subject_slug": "afrikaans-9679",
+      "code": "9679",
+      "level": "as-and-a-level"
+    },
+    "9713": {
+      "title": "Applied ICT - 9713",
+      "full_slug": "as-and-a-level-applied-ict-9713",
+      "subject_slug": "applied-ict-9713",
+      "code": "9713",
+      "level": "as-and-a-level"
+    },
+    "applied-ict-9713": {
+      "title": "Applied ICT - 9713",
+      "full_slug": "as-and-a-level-applied-ict-9713",
+      "subject_slug": "applied-ict-9713",
+      "code": "9713",
+      "level": "as-and-a-level"
+    },
+    "8680": {
+      "title": "Arabic - 8680",
+      "full_slug": "as-and-a-level-arabic-8680",
+      "subject_slug": "arabic-8680",
+      "code": "8680",
+      "level": "as-and-a-level"
+    },
+    "arabic-8680": {
+      "title": "Arabic - 8680",
+      "full_slug": "as-and-a-level-arabic-8680",
+      "subject_slug": "arabic-8680",
+      "code": "8680",
+      "level": "as-and-a-level"
+    },
+    "9680": {
+      "title": "Arabic - 9680",
+      "full_slug": "as-and-a-level-arabic-9680",
+      "subject_slug": "arabic-9680",
+      "code": "9680",
+      "level": "as-and-a-level"
+    },
+    "arabic-9680": {
+      "title": "Arabic - 9680",
+      "full_slug": "as-and-a-level-arabic-9680",
+      "subject_slug": "arabic-9680",
+      "code": "9680",
+      "level": "as-and-a-level"
+    },
+    "9704": {
+      "title": "Art and Design - 9704",
+      "full_slug": "as-and-a-level-art-and-design-9704",
+      "subject_slug": "art-and-design-9704",
+      "code": "9704",
+      "level": "as-and-a-level"
+    },
+    "art-and-design-9704": {
+      "title": "Art and Design - 9704",
+      "full_slug": "as-and-a-level-art-and-design-9704",
+      "subject_slug": "art-and-design-9704",
+      "code": "9704",
+      "level": "as-and-a-level"
+    },
+    "9479": {
+      "title": "Art-and-Design-9479",
+      "full_slug": "as-and-a-level-art-and-design-9479",
+      "subject_slug": "art-and-design-9479",
+      "code": "9479",
+      "level": "as-and-a-level"
+    },
+    "art-and-design-9479": {
+      "title": "Art-and-Design-9479",
+      "full_slug": "as-and-a-level-art-and-design-9479",
+      "subject_slug": "art-and-design-9479",
+      "code": "9479",
+      "level": "as-and-a-level"
+    },
+    "9484": {
+      "title": "Biblical Studies 9484",
+      "full_slug": "as-and-a-level-biblical-studies-9484",
+      "subject_slug": "biblical-studies-9484",
+      "code": "9484",
+      "level": "as-and-a-level"
+    },
+    "biblical-studies-9484": {
+      "title": "Biblical Studies 9484",
+      "full_slug": "as-and-a-level-biblical-studies-9484",
+      "subject_slug": "biblical-studies-9484",
+      "code": "9484",
+      "level": "as-and-a-level"
+    },
+    "9184": {
+      "title": "Biology - 9184",
+      "full_slug": "as-and-a-level-biology-9184",
+      "subject_slug": "biology-9184",
+      "code": "9184",
+      "level": "as-and-a-level"
+    },
+    "biology-9184": {
+      "title": "Biology - 9184",
+      "full_slug": "as-and-a-level-biology-9184",
+      "subject_slug": "biology-9184",
+      "code": "9184",
+      "level": "as-and-a-level"
+    },
+    "9700": {
+      "title": "Biology - 9700",
+      "full_slug": "as-and-a-level-biology-9700",
+      "subject_slug": "biology-9700",
+      "code": "9700",
+      "level": "as-and-a-level"
+    },
+    "biology-9700": {
+      "title": "Biology - 9700",
+      "full_slug": "as-and-a-level-biology-9700",
+      "subject_slug": "biology-9700",
+      "code": "9700",
+      "level": "as-and-a-level"
+    },
+    "9707": {
+      "title": "Business Studies - 9707",
+      "full_slug": "as-and-a-level-business-studies-9707",
+      "subject_slug": "business-studies-9707",
+      "code": "9707",
+      "level": "as-and-a-level"
+    },
+    "business-studies-9707": {
+      "title": "Business Studies - 9707",
+      "full_slug": "as-and-a-level-business-studies-9707",
+      "subject_slug": "business-studies-9707",
+      "code": "9707",
+      "level": "as-and-a-level"
+    },
+    "9609": {
+      "title": "Business- 9609",
+      "full_slug": "as-and-a-level-business9609",
+      "subject_slug": "business9609",
+      "code": "9609",
+      "level": "as-and-a-level"
+    },
+    "business9609": {
+      "title": "Business- 9609",
+      "full_slug": "as-and-a-level-business9609",
+      "subject_slug": "business9609",
+      "code": "9609",
+      "level": "as-and-a-level"
+    },
+    "9980": {
+      "title": "Cambridge International Project Qualification (9980)",
+      "full_slug": "as-and-a-level-cambridge-international-project-qualification-9980",
+      "subject_slug": "cambridge-international-project-qualification-9980",
+      "code": "9980",
+      "level": "as-and-a-level"
+    },
+    "cambridge-international-project-qualification-9980": {
+      "title": "Cambridge International Project Qualification (9980)",
+      "full_slug": "as-and-a-level-cambridge-international-project-qualification-9980",
+      "subject_slug": "cambridge-international-project-qualification-9980",
+      "code": "9980",
+      "level": "as-and-a-level"
+    },
+    "9185": {
+      "title": "Chemistry - 9185",
+      "full_slug": "as-and-a-level-chemistry-9185",
+      "subject_slug": "chemistry-9185",
+      "code": "9185",
+      "level": "as-and-a-level"
+    },
+    "chemistry-9185": {
+      "title": "Chemistry - 9185",
+      "full_slug": "as-and-a-level-chemistry-9185",
+      "subject_slug": "chemistry-9185",
+      "code": "9185",
+      "level": "as-and-a-level"
+    },
+    "9701": {
+      "title": "Chemistry - 9701",
+      "full_slug": "as-and-a-level-chemistry-9701",
+      "subject_slug": "chemistry-9701",
+      "code": "9701",
+      "level": "as-and-a-level"
+    },
+    "chemistry-9701": {
+      "title": "Chemistry - 9701",
+      "full_slug": "as-and-a-level-chemistry-9701",
+      "subject_slug": "chemistry-9701",
+      "code": "9701",
+      "level": "as-and-a-level"
+    },
+    "8238": {
+      "title": "Chinese - 8238",
+      "full_slug": "as-and-a-level-chinese-8238",
+      "subject_slug": "chinese-8238",
+      "code": "8238",
+      "level": "as-and-a-level"
+    },
+    "chinese-8238": {
+      "title": "Chinese - 8238",
+      "full_slug": "as-and-a-level-chinese-8238",
+      "subject_slug": "chinese-8238",
+      "code": "8238",
+      "level": "as-and-a-level"
+    },
+    "8669": {
+      "title": "Chinese - 8669",
+      "full_slug": "as-and-a-level-chinese-8669",
+      "subject_slug": "chinese-8669",
+      "code": "8669",
+      "level": "as-and-a-level"
+    },
+    "chinese-8669": {
+      "title": "Chinese - 8669",
+      "full_slug": "as-and-a-level-chinese-8669",
+      "subject_slug": "chinese-8669",
+      "code": "8669",
+      "level": "as-and-a-level"
+    },
+    "8681": {
+      "title": "Chinese - 8681",
+      "full_slug": "as-and-a-level-chinese-8681",
+      "subject_slug": "chinese-8681",
+      "code": "8681",
+      "level": "as-and-a-level"
+    },
+    "chinese-8681": {
+      "title": "Chinese - 8681",
+      "full_slug": "as-and-a-level-chinese-8681",
+      "subject_slug": "chinese-8681",
+      "code": "8681",
+      "level": "as-and-a-level"
+    },
+    "9715": {
+      "title": "Chinese - 9715",
+      "full_slug": "as-and-a-level-chinese-9715",
+      "subject_slug": "chinese-9715",
+      "code": "9715",
+      "level": "as-and-a-level"
+    },
+    "chinese-9715": {
+      "title": "Chinese - 9715",
+      "full_slug": "as-and-a-level-chinese-9715",
+      "subject_slug": "chinese-9715",
+      "code": "9715",
+      "level": "as-and-a-level"
+    },
+    "9868": {
+      "title": "Chinese-9868",
+      "full_slug": "as-and-a-level-chinese-9868",
+      "subject_slug": "chinese-9868",
+      "code": "9868",
+      "level": "as-and-a-level"
+    },
+    "chinese-9868": {
+      "title": "Chinese-9868",
+      "full_slug": "as-and-a-level-chinese-9868",
+      "subject_slug": "chinese-9868",
+      "code": "9868",
+      "level": "as-and-a-level"
+    },
+    "9274": {
+      "title": "Classical Studies - 9274",
+      "full_slug": "as-and-a-level-classical-studies-9274",
+      "subject_slug": "classical-studies-9274",
+      "code": "9274",
+      "level": "as-and-a-level"
+    },
+    "classical-studies-9274": {
+      "title": "Classical Studies - 9274",
+      "full_slug": "as-and-a-level-classical-studies-9274",
+      "subject_slug": "classical-studies-9274",
+      "code": "9274",
+      "level": "as-and-a-level"
+    },
+    "9608": {
+      "title": "Computer Science - 9608",
+      "full_slug": "as-and-a-level-computer-science-9608",
+      "subject_slug": "computer-science-9608",
+      "code": "9608",
+      "level": "as-and-a-level"
+    },
+    "computer-science-9608": {
+      "title": "Computer Science - 9608",
+      "full_slug": "as-and-a-level-computer-science-9608",
+      "subject_slug": "computer-science-9608",
+      "code": "9608",
+      "level": "as-and-a-level"
+    },
+    "9618": {
+      "title": "Computer Science - for first examination in 2021 - 9618",
+      "full_slug": "as-and-a-level-computer-science-for-first-examination-in-2021-9618",
+      "subject_slug": "computer-science-for-first-examination-in-2021-9618",
+      "code": "9618",
+      "level": "as-and-a-level"
+    },
+    "computer-science-for-first-examination-in-2021-9618": {
+      "title": "Computer Science - for first examination in 2021 - 9618",
+      "full_slug": "as-and-a-level-computer-science-for-first-examination-in-2021-9618",
+      "subject_slug": "computer-science-for-first-examination-in-2021-9618",
+      "code": "9618",
+      "level": "as-and-a-level"
+    },
+    "9691": {
+      "title": "Computing - 9691",
+      "full_slug": "as-and-a-level-computing-9691",
+      "subject_slug": "computing-9691",
+      "code": "9691",
+      "level": "as-and-a-level"
+    },
+    "computing-9691": {
+      "title": "Computing - 9691",
+      "full_slug": "as-and-a-level-computing-9691",
+      "subject_slug": "computing-9691",
+      "code": "9691",
+      "level": "as-and-a-level"
+    },
+    "9481": {
+      "title": "Design and Technology - 9481",
+      "full_slug": "as-and-a-level-design-and-technology-9481",
+      "subject_slug": "design-and-technology-9481",
+      "code": "9481",
+      "level": "as-and-a-level"
+    },
+    "design-and-technology-9481": {
+      "title": "Design and Technology - 9481",
+      "full_slug": "as-and-a-level-design-and-technology-9481",
+      "subject_slug": "design-and-technology-9481",
+      "code": "9481",
+      "level": "as-and-a-level"
+    },
+    "9705": {
+      "title": "Design and Technology - 9705",
+      "full_slug": "as-and-a-level-design-and-technology-9705",
+      "subject_slug": "design-and-technology-9705",
+      "code": "9705",
+      "level": "as-and-a-level"
+    },
+    "design-and-technology-9705": {
+      "title": "Design and Technology - 9705",
+      "full_slug": "as-and-a-level-design-and-technology-9705",
+      "subject_slug": "design-and-technology-9705",
+      "code": "9705",
+      "level": "as-and-a-level"
+    },
+    "9631": {
+      "title": "Design and Textiles - 9631",
+      "full_slug": "as-and-a-level-design-and-textiles-9631",
+      "subject_slug": "design-and-textiles-9631",
+      "code": "9631",
+      "level": "as-and-a-level"
+    },
+    "design-and-textiles-9631": {
+      "title": "Design and Textiles - 9631",
+      "full_slug": "as-and-a-level-design-and-textiles-9631",
+      "subject_slug": "design-and-textiles-9631",
+      "code": "9631",
+      "level": "as-and-a-level"
+    },
+    "8041": {
+      "title": "Divinity - 9011 and 8041",
+      "full_slug": "as-and-a-level-divinity-9011-and-8041",
+      "subject_slug": "divinity-9011-and-8041",
+      "code": "8041",
+      "level": "as-and-a-level"
+    },
+    "divinity-9011-and-8041": {
+      "title": "Divinity - 9011 and 8041",
+      "full_slug": "as-and-a-level-divinity-9011-and-8041",
+      "subject_slug": "divinity-9011-and-8041",
+      "code": "8041",
+      "level": "as-and-a-level"
+    },
+    "9482": {
+      "title": "Drama - 9482",
+      "full_slug": "as-and-a-level-drama-9482",
+      "subject_slug": "drama-9482",
+      "code": "9482",
+      "level": "as-and-a-level"
+    },
+    "drama-9482": {
+      "title": "Drama - 9482",
+      "full_slug": "as-and-a-level-drama-9482",
+      "subject_slug": "drama-9482",
+      "code": "9482",
+      "level": "as-and-a-level"
+    },
+    "9708": {
+      "title": "Economics - 9708",
+      "full_slug": "as-and-a-level-economics-9708",
+      "subject_slug": "economics-9708",
+      "code": "9708",
+      "level": "as-and-a-level"
+    },
+    "economics-9708": {
+      "title": "Economics - 9708",
+      "full_slug": "as-and-a-level-economics-9708",
+      "subject_slug": "economics-9708",
+      "code": "9708",
+      "level": "as-and-a-level"
+    },
+    "8274": {
+      "title": "English  - 8274",
+      "full_slug": "as-and-a-level-english8274",
+      "subject_slug": "english8274",
+      "code": "8274",
+      "level": "as-and-a-level"
+    },
+    "english8274": {
+      "title": "English  - 8274",
+      "full_slug": "as-and-a-level-english8274",
+      "subject_slug": "english8274",
+      "code": "8274",
+      "level": "as-and-a-level"
+    },
+    "8287": {
+      "title": "English - 8287",
+      "full_slug": "as-and-a-level-english-8287",
+      "subject_slug": "english-8287",
+      "code": "8287",
+      "level": "as-and-a-level"
+    },
+    "english-8287": {
+      "title": "English - 8287",
+      "full_slug": "as-and-a-level-english-8287",
+      "subject_slug": "english-8287",
+      "code": "8287",
+      "level": "as-and-a-level"
+    },
+    "8693": {
+      "title": "English - 8693",
+      "full_slug": "as-and-a-level-english-8693",
+      "subject_slug": "english-8693",
+      "code": "8693",
+      "level": "as-and-a-level"
+    },
+    "english-8693": {
+      "title": "English - 8693",
+      "full_slug": "as-and-a-level-english-8693",
+      "subject_slug": "english-8693",
+      "code": "8693",
+      "level": "as-and-a-level"
+    },
+    "8695": {
+      "title": "English - 8695",
+      "full_slug": "as-and-a-level-english-8695",
+      "subject_slug": "english-8695",
+      "code": "8695",
+      "level": "as-and-a-level"
+    },
+    "english-8695": {
+      "title": "English - 8695",
+      "full_slug": "as-and-a-level-english-8695",
+      "subject_slug": "english-8695",
+      "code": "8695",
+      "level": "as-and-a-level"
+    },
+    "9093": {
+      "title": "English - 9093",
+      "full_slug": "as-and-a-level-english-9093",
+      "subject_slug": "english-9093",
+      "code": "9093",
+      "level": "as-and-a-level"
+    },
+    "english-9093": {
+      "title": "English - 9093",
+      "full_slug": "as-and-a-level-english-9093",
+      "subject_slug": "english-9093",
+      "code": "9093",
+      "level": "as-and-a-level"
+    },
+    "9276": {
+      "title": "English - Literature - 9276",
+      "full_slug": "as-and-a-level-english-literature-9276",
+      "subject_slug": "english-literature-9276",
+      "code": "9276",
+      "level": "as-and-a-level"
+    },
+    "english-literature-9276": {
+      "title": "English - Literature - 9276",
+      "full_slug": "as-and-a-level-english-literature-9276",
+      "subject_slug": "english-literature-9276",
+      "code": "9276",
+      "level": "as-and-a-level"
+    },
+    "9695": {
+      "title": "English - Literature - 9695",
+      "full_slug": "as-and-a-level-english-literature-9695",
+      "subject_slug": "english-literature-9695",
+      "code": "9695",
+      "level": "as-and-a-level"
+    },
+    "english-literature-9695": {
+      "title": "English - Literature - 9695",
+      "full_slug": "as-and-a-level-english-literature-9695",
+      "subject_slug": "english-literature-9695",
+      "code": "9695",
+      "level": "as-and-a-level"
+    },
+    "8021": {
+      "title": "English General Paper - 8021",
+      "full_slug": "as-and-a-level-english-general-paper-8021",
+      "subject_slug": "english-general-paper-8021",
+      "code": "8021",
+      "level": "as-and-a-level"
+    },
+    "english-general-paper-8021": {
+      "title": "English General Paper - 8021",
+      "full_slug": "as-and-a-level-english-general-paper-8021",
+      "subject_slug": "english-general-paper-8021",
+      "code": "8021",
+      "level": "as-and-a-level"
+    },
+    "8291": {
+      "title": "Environmental Management - 8291",
+      "full_slug": "as-and-a-level-environmental-management-8291",
+      "subject_slug": "environmental-management-8291",
+      "code": "8291",
+      "level": "as-and-a-level"
+    },
+    "environmental-management-8291": {
+      "title": "Environmental Management - 8291",
+      "full_slug": "as-and-a-level-environmental-management-8291",
+      "subject_slug": "environmental-management-8291",
+      "code": "8291",
+      "level": "as-and-a-level"
+    },
+    "9336": {
+      "title": "Food Studies - 9336",
+      "full_slug": "as-and-a-level-food-studies-9336",
+      "subject_slug": "food-studies-9336",
+      "code": "9336",
+      "level": "as-and-a-level"
+    },
+    "food-studies-9336": {
+      "title": "Food Studies - 9336",
+      "full_slug": "as-and-a-level-food-studies-9336",
+      "subject_slug": "food-studies-9336",
+      "code": "9336",
+      "level": "as-and-a-level"
+    },
+    "8277": {
+      "title": "French - 8277",
+      "full_slug": "as-and-a-level-french-8277",
+      "subject_slug": "french-8277",
+      "code": "8277",
+      "level": "as-and-a-level"
+    },
+    "french-8277": {
+      "title": "French - 8277",
+      "full_slug": "as-and-a-level-french-8277",
+      "subject_slug": "french-8277",
+      "code": "8277",
+      "level": "as-and-a-level"
+    },
+    "8682": {
+      "title": "French - 8682",
+      "full_slug": "as-and-a-level-french-8682",
+      "subject_slug": "french-8682",
+      "code": "8682",
+      "level": "as-and-a-level"
+    },
+    "french-8682": {
+      "title": "French - 8682",
+      "full_slug": "as-and-a-level-french-8682",
+      "subject_slug": "french-8682",
+      "code": "8682",
+      "level": "as-and-a-level"
+    },
+    "9281": {
+      "title": "French - 9281",
+      "full_slug": "as-and-a-level-french-9281",
+      "subject_slug": "french-9281",
+      "code": "9281",
+      "level": "as-and-a-level"
+    },
+    "french-9281": {
+      "title": "French - 9281",
+      "full_slug": "as-and-a-level-french-9281",
+      "subject_slug": "french-9281",
+      "code": "9281",
+      "level": "as-and-a-level"
+    },
+    "9716": {
+      "title": "French - 9716",
+      "full_slug": "as-and-a-level-french-9716",
+      "subject_slug": "french-9716",
+      "code": "9716",
+      "level": "as-and-a-level"
+    },
+    "french-9716": {
+      "title": "French - 9716",
+      "full_slug": "as-and-a-level-french-9716",
+      "subject_slug": "french-9716",
+      "code": "9716",
+      "level": "as-and-a-level"
+    },
+    "8028": {
+      "title": "French - Language AS Level only-8028",
+      "full_slug": "as-and-a-level-french-language-as-level-only-8028",
+      "subject_slug": "french-language-as-level-only-8028",
+      "code": "8028",
+      "level": "as-and-a-level"
+    },
+    "french-language-as-level-only-8028": {
+      "title": "French - Language AS Level only-8028",
+      "full_slug": "as-and-a-level-french-language-as-level-only-8028",
+      "subject_slug": "french-language-as-level-only-8028",
+      "code": "8028",
+      "level": "as-and-a-level"
+    },
+    "8670": {
+      "title": "French - Literature - 8670",
+      "full_slug": "as-and-a-level-french-literature-8670",
+      "subject_slug": "french-literature-8670",
+      "code": "8670",
+      "level": "as-and-a-level"
+    },
+    "french-literature-8670": {
+      "title": "French - Literature - 8670",
+      "full_slug": "as-and-a-level-french-literature-8670",
+      "subject_slug": "french-literature-8670",
+      "code": "8670",
+      "level": "as-and-a-level"
+    },
+    "9898": {
+      "title": "French Language & Literature - 9898",
+      "full_slug": "as-and-a-level-french-languageliterature-9898",
+      "subject_slug": "french-languageliterature-9898",
+      "code": "9898",
+      "level": "as-and-a-level"
+    },
+    "french-languageliterature-9898": {
+      "title": "French Language & Literature - 9898",
+      "full_slug": "as-and-a-level-french-languageliterature-9898",
+      "subject_slug": "french-languageliterature-9898",
+      "code": "9898",
+      "level": "as-and-a-level"
+    },
+    "8001": {
+      "title": "General Paper - 8001",
+      "full_slug": "as-and-a-level-general-paper-8001",
+      "subject_slug": "general-paper-8001",
+      "code": "8001",
+      "level": "as-and-a-level"
+    },
+    "general-paper-8001": {
+      "title": "General Paper - 8001",
+      "full_slug": "as-and-a-level-general-paper-8001",
+      "subject_slug": "general-paper-8001",
+      "code": "8001",
+      "level": "as-and-a-level"
+    },
+    "8004": {
+      "title": "General Paper - 8004",
+      "full_slug": "as-and-a-level-general-paper-8004",
+      "subject_slug": "general-paper-8004",
+      "code": "8004",
+      "level": "as-and-a-level"
+    },
+    "general-paper-8004": {
+      "title": "General Paper - 8004",
+      "full_slug": "as-and-a-level-general-paper-8004",
+      "subject_slug": "general-paper-8004",
+      "code": "8004",
+      "level": "as-and-a-level"
+    },
+    "9278": {
+      "title": "Geography - 9278",
+      "full_slug": "as-and-a-level-geography-9278",
+      "subject_slug": "geography-9278",
+      "code": "9278",
+      "level": "as-and-a-level"
+    },
+    "geography-9278": {
+      "title": "Geography - 9278",
+      "full_slug": "as-and-a-level-geography-9278",
+      "subject_slug": "geography-9278",
+      "code": "9278",
+      "level": "as-and-a-level"
+    },
+    "9696": {
+      "title": "Geography - 9696",
+      "full_slug": "as-and-a-level-geography-9696",
+      "subject_slug": "geography-9696",
+      "code": "9696",
+      "level": "as-and-a-level"
+    },
+    "geography-9696": {
+      "title": "Geography - 9696",
+      "full_slug": "as-and-a-level-geography-9696",
+      "subject_slug": "geography-9696",
+      "code": "9696",
+      "level": "as-and-a-level"
+    },
+    "8027": {
+      "title": "German - 8027",
+      "full_slug": "as-and-a-level-german-8027",
+      "subject_slug": "german-8027",
+      "code": "8027",
+      "level": "as-and-a-level"
+    },
+    "german-8027": {
+      "title": "German - 8027",
+      "full_slug": "as-and-a-level-german-8027",
+      "subject_slug": "german-8027",
+      "code": "8027",
+      "level": "as-and-a-level"
+    },
+    "8683": {
+      "title": "German - 8683",
+      "full_slug": "as-and-a-level-german-8683",
+      "subject_slug": "german-8683",
+      "code": "8683",
+      "level": "as-and-a-level"
+    },
+    "german-8683": {
+      "title": "German - 8683",
+      "full_slug": "as-and-a-level-german-8683",
+      "subject_slug": "german-8683",
+      "code": "8683",
+      "level": "as-and-a-level"
+    },
+    "9717": {
+      "title": "German - 9717",
+      "full_slug": "as-and-a-level-german-9717",
+      "subject_slug": "german-9717",
+      "code": "9717",
+      "level": "as-and-a-level"
+    },
+    "german-9717": {
+      "title": "German - 9717",
+      "full_slug": "as-and-a-level-german-9717",
+      "subject_slug": "german-9717",
+      "code": "9717",
+      "level": "as-and-a-level"
+    },
+    "9897": {
+      "title": "German Language & Literature - 9897",
+      "full_slug": "as-and-a-level-german-languageliterature-9897",
+      "subject_slug": "german-languageliterature-9897",
+      "code": "9897",
+      "level": "as-and-a-level"
+    },
+    "german-languageliterature-9897": {
+      "title": "German Language & Literature - 9897",
+      "full_slug": "as-and-a-level-german-languageliterature-9897",
+      "subject_slug": "german-languageliterature-9897",
+      "code": "9897",
+      "level": "as-and-a-level"
+    },
+    "8275": {
+      "title": "Global Perspectives - 8275",
+      "full_slug": "as-and-a-level-global-perspectives-8275",
+      "subject_slug": "global-perspectives-8275",
+      "code": "8275",
+      "level": "as-and-a-level"
+    },
+    "global-perspectives-8275": {
+      "title": "Global Perspectives - 8275",
+      "full_slug": "as-and-a-level-global-perspectives-8275",
+      "subject_slug": "global-perspectives-8275",
+      "code": "8275",
+      "level": "as-and-a-level"
+    },
+    "8987": {
+      "title": "Global Perspectives - 8987",
+      "full_slug": "as-and-a-level-global-perspectives-8987",
+      "subject_slug": "global-perspectives-8987",
+      "code": "8987",
+      "level": "as-and-a-level"
+    },
+    "global-perspectives-8987": {
+      "title": "Global Perspectives - 8987",
+      "full_slug": "as-and-a-level-global-perspectives-8987",
+      "subject_slug": "global-perspectives-8987",
+      "code": "8987",
+      "level": "as-and-a-level"
+    },
+    "9239": {
+      "title": "Global Perspectives and Research - 9239",
+      "full_slug": "as-and-a-level-global-perspectives-and-research-9239",
+      "subject_slug": "global-perspectives-and-research-9239",
+      "code": "9239",
+      "level": "as-and-a-level"
+    },
+    "global-perspectives-and-research-9239": {
+      "title": "Global Perspectives and Research - 9239",
+      "full_slug": "as-and-a-level-global-perspectives-and-research-9239",
+      "subject_slug": "global-perspectives-and-research-9239",
+      "code": "9239",
+      "level": "as-and-a-level"
+    },
+    "8687": {
+      "title": "Hindi - 8687",
+      "full_slug": "as-and-a-level-hindi-8687",
+      "subject_slug": "hindi-8687",
+      "code": "8687",
+      "level": "as-and-a-level"
+    },
+    "hindi-8687": {
+      "title": "Hindi - 8687",
+      "full_slug": "as-and-a-level-hindi-8687",
+      "subject_slug": "hindi-8687",
+      "code": "8687",
+      "level": "as-and-a-level"
+    },
+    "9687": {
+      "title": "Hindi - 9687",
+      "full_slug": "as-and-a-level-hindi-9687",
+      "subject_slug": "hindi-9687",
+      "code": "9687",
+      "level": "as-and-a-level"
+    },
+    "hindi-9687": {
+      "title": "Hindi - 9687",
+      "full_slug": "as-and-a-level-hindi-9687",
+      "subject_slug": "hindi-9687",
+      "code": "9687",
+      "level": "as-and-a-level"
+    },
+    "8675": {
+      "title": "Hindi - Literature - 8675",
+      "full_slug": "as-and-a-level-hindi-literature-8675",
+      "subject_slug": "hindi-literature-8675",
+      "code": "8675",
+      "level": "as-and-a-level"
+    },
+    "hindi-literature-8675": {
+      "title": "Hindi - Literature - 8675",
+      "full_slug": "as-and-a-level-hindi-literature-8675",
+      "subject_slug": "hindi-literature-8675",
+      "code": "8675",
+      "level": "as-and-a-level"
+    },
+    "9014": {
+      "title": "Hinduism - 9014",
+      "full_slug": "as-and-a-level-hinduism-9014",
+      "subject_slug": "hinduism-9014",
+      "code": "9014",
+      "level": "as-and-a-level"
+    },
+    "hinduism-9014": {
+      "title": "Hinduism - 9014",
+      "full_slug": "as-and-a-level-hinduism-9014",
+      "subject_slug": "hinduism-9014",
+      "code": "9014",
+      "level": "as-and-a-level"
+    },
+    "9487": {
+      "title": "Hinduism - 9487",
+      "full_slug": "as-and-a-level-hinduism-9487",
+      "subject_slug": "hinduism-9487",
+      "code": "9487",
+      "level": "as-and-a-level"
+    },
+    "hinduism-9487": {
+      "title": "Hinduism - 9487",
+      "full_slug": "as-and-a-level-hinduism-9487",
+      "subject_slug": "hinduism-9487",
+      "code": "9487",
+      "level": "as-and-a-level"
+    },
+    "8058": {
+      "title": "Hinduism -8058",
+      "full_slug": "as-and-a-level-hinduism8058",
+      "subject_slug": "hinduism8058",
+      "code": "8058",
+      "level": "as-and-a-level"
+    },
+    "hinduism8058": {
+      "title": "Hinduism -8058",
+      "full_slug": "as-and-a-level-hinduism8058",
+      "subject_slug": "hinduism8058",
+      "code": "8058",
+      "level": "as-and-a-level"
+    },
+    "9279": {
+      "title": "History - 9279",
+      "full_slug": "as-and-a-level-history-9279",
+      "subject_slug": "history-9279",
+      "code": "9279",
+      "level": "as-and-a-level"
+    },
+    "history-9279": {
+      "title": "History - 9279",
+      "full_slug": "as-and-a-level-history-9279",
+      "subject_slug": "history-9279",
+      "code": "9279",
+      "level": "as-and-a-level"
+    },
+    "9389": {
+      "title": "History - 9389",
+      "full_slug": "as-and-a-level-history-9389",
+      "subject_slug": "history-9389",
+      "code": "9389",
+      "level": "as-and-a-level"
+    },
+    "history-9389": {
+      "title": "History - 9389",
+      "full_slug": "as-and-a-level-history-9389",
+      "subject_slug": "history-9389",
+      "code": "9389",
+      "level": "as-and-a-level"
+    },
+    "9489": {
+      "title": "History - 9489",
+      "full_slug": "as-and-a-level-history-9489",
+      "subject_slug": "history-9489",
+      "code": "9489",
+      "level": "as-and-a-level"
+    },
+    "history-9489": {
+      "title": "History - 9489",
+      "full_slug": "as-and-a-level-history-9489",
+      "subject_slug": "history-9489",
+      "code": "9489",
+      "level": "as-and-a-level"
+    },
+    "9697": {
+      "title": "History - 9697",
+      "full_slug": "as-and-a-level-history-9697",
+      "subject_slug": "history-9697",
+      "code": "9697",
+      "level": "as-and-a-level"
+    },
+    "history-9697": {
+      "title": "History - 9697",
+      "full_slug": "as-and-a-level-history-9697",
+      "subject_slug": "history-9697",
+      "code": "9697",
+      "level": "as-and-a-level"
+    },
+    "9626": {
+      "title": "Information Technology - 9626",
+      "full_slug": "as-and-a-level-information-technology-9626",
+      "subject_slug": "information-technology-9626",
+      "code": "9626",
+      "level": "as-and-a-level"
+    },
+    "information-technology-9626": {
+      "title": "Information Technology - 9626",
+      "full_slug": "as-and-a-level-information-technology-9626",
+      "subject_slug": "information-technology-9626",
+      "code": "9626",
+      "level": "as-and-a-level"
+    },
+    "8053": {
+      "title": "Islamic Studies - 9013 and 8053",
+      "full_slug": "as-and-a-level-islamic-studies-9013-and-8053",
+      "subject_slug": "islamic-studies-9013-and-8053",
+      "code": "8053",
+      "level": "as-and-a-level"
+    },
+    "islamic-studies-9013-and-8053": {
+      "title": "Islamic Studies - 9013 and 8053",
+      "full_slug": "as-and-a-level-islamic-studies-9013-and-8053",
+      "subject_slug": "islamic-studies-9013-and-8053",
+      "code": "8053",
+      "level": "as-and-a-level"
+    },
+    "9488": {
+      "title": "Islamic Studies - 9488",
+      "full_slug": "as-and-a-level-islamic-studies-9488",
+      "subject_slug": "islamic-studies-9488",
+      "code": "9488",
+      "level": "as-and-a-level"
+    },
+    "islamic-studies-9488": {
+      "title": "Islamic Studies - 9488",
+      "full_slug": "as-and-a-level-islamic-studies-9488",
+      "subject_slug": "islamic-studies-9488",
+      "code": "9488",
+      "level": "as-and-a-level"
+    },
+    "8281": {
+      "title": "Japanese - 8281",
+      "full_slug": "as-and-a-level-japanese-8281",
+      "subject_slug": "japanese-8281",
+      "code": "8281",
+      "level": "as-and-a-level"
+    },
+    "japanese-8281": {
+      "title": "Japanese - 8281",
+      "full_slug": "as-and-a-level-japanese-8281",
+      "subject_slug": "japanese-8281",
+      "code": "8281",
+      "level": "as-and-a-level"
+    },
+    "9084": {
+      "title": "Law 9084",
+      "full_slug": "as-and-a-level-law-9084",
+      "subject_slug": "law-9084",
+      "code": "9084",
+      "level": "as-and-a-level"
+    },
+    "law-9084": {
+      "title": "Law 9084",
+      "full_slug": "as-and-a-level-law-9084",
+      "subject_slug": "law-9084",
+      "code": "9084",
+      "level": "as-and-a-level"
+    },
+    "8688": {
+      "title": "Marathi - 8688",
+      "full_slug": "as-and-a-level-marathi-8688",
+      "subject_slug": "marathi-8688",
+      "code": "8688",
+      "level": "as-and-a-level"
+    },
+    "marathi-8688": {
+      "title": "Marathi - 8688",
+      "full_slug": "as-and-a-level-marathi-8688",
+      "subject_slug": "marathi-8688",
+      "code": "8688",
+      "level": "as-and-a-level"
+    },
+    "9688": {
+      "title": "Marathi - 9688",
+      "full_slug": "as-and-a-level-marathi-9688",
+      "subject_slug": "marathi-9688",
+      "code": "9688",
+      "level": "as-and-a-level"
+    },
+    "marathi-9688": {
+      "title": "Marathi - 9688",
+      "full_slug": "as-and-a-level-marathi-9688",
+      "subject_slug": "marathi-9688",
+      "code": "9688",
+      "level": "as-and-a-level"
+    },
+    "9693": {
+      "title": "Marine Science - 9693",
+      "full_slug": "as-and-a-level-marine-science-9693",
+      "subject_slug": "marine-science-9693",
+      "code": "9693",
+      "level": "as-and-a-level"
+    },
+    "marine-science-9693": {
+      "title": "Marine Science - 9693",
+      "full_slug": "as-and-a-level-marine-science-9693",
+      "subject_slug": "marine-science-9693",
+      "code": "9693",
+      "level": "as-and-a-level"
+    },
+    "9231": {
+      "title": "Mathematics - 9231",
+      "full_slug": "as-and-a-level-mathematics-9231",
+      "subject_slug": "mathematics-9231",
+      "code": "9231",
+      "level": "as-and-a-level"
+    },
+    "mathematics-9231": {
+      "title": "Mathematics - 9231",
+      "full_slug": "as-and-a-level-mathematics-9231",
+      "subject_slug": "mathematics-9231",
+      "code": "9231",
+      "level": "as-and-a-level"
+    },
+    "9280": {
+      "title": "Mathematics - 9280",
+      "full_slug": "as-and-a-level-mathematics-9280",
+      "subject_slug": "mathematics-9280",
+      "code": "9280",
+      "level": "as-and-a-level"
+    },
+    "mathematics-9280": {
+      "title": "Mathematics - 9280",
+      "full_slug": "as-and-a-level-mathematics-9280",
+      "subject_slug": "mathematics-9280",
+      "code": "9280",
+      "level": "as-and-a-level"
+    },
+    "9709": {
+      "title": "Mathematics - 9709",
+      "full_slug": "as-and-a-level-mathematics-9709",
+      "subject_slug": "mathematics-9709",
+      "code": "9709",
+      "level": "as-and-a-level"
+    },
+    "mathematics-9709": {
+      "title": "Mathematics - 9709",
+      "full_slug": "as-and-a-level-mathematics-9709",
+      "subject_slug": "mathematics-9709",
+      "code": "9709",
+      "level": "as-and-a-level"
+    },
+    "9607": {
+      "title": "Media Studies - 9607",
+      "full_slug": "as-and-a-level-media-studies-9607",
+      "subject_slug": "media-studies-9607",
+      "code": "9607",
+      "level": "as-and-a-level"
+    },
+    "media-studies-9607": {
+      "title": "Media Studies - 9607",
+      "full_slug": "as-and-a-level-media-studies-9607",
+      "subject_slug": "media-studies-9607",
+      "code": "9607",
+      "level": "as-and-a-level"
+    },
+    "9385": {
+      "title": "Music - 9385",
+      "full_slug": "as-and-a-level-music-9385",
+      "subject_slug": "music-9385",
+      "code": "9385",
+      "level": "as-and-a-level"
+    },
+    "music-9385": {
+      "title": "Music - 9385",
+      "full_slug": "as-and-a-level-music-9385",
+      "subject_slug": "music-9385",
+      "code": "9385",
+      "level": "as-and-a-level"
+    },
+    "9483": {
+      "title": "Music - 9483",
+      "full_slug": "as-and-a-level-music-9483",
+      "subject_slug": "music-9483",
+      "code": "9483",
+      "level": "as-and-a-level"
+    },
+    "music-9483": {
+      "title": "Music - 9483",
+      "full_slug": "as-and-a-level-music-9483",
+      "subject_slug": "music-9483",
+      "code": "9483",
+      "level": "as-and-a-level"
+    },
+    "8663": {
+      "title": "Music - 9703 and 8663",
+      "full_slug": "as-and-a-level-music-9703-and-8663",
+      "subject_slug": "music-9703-and-8663",
+      "code": "8663",
+      "level": "as-and-a-level"
+    },
+    "music-9703-and-8663": {
+      "title": "Music - 9703 and 8663",
+      "full_slug": "as-and-a-level-music-9703-and-8663",
+      "subject_slug": "music-9703-and-8663",
+      "code": "8663",
+      "level": "as-and-a-level"
+    },
+    "8024": {
+      "title": "Nepal Studies - 8024",
+      "full_slug": "as-and-a-level-nepal-studies-8024",
+      "subject_slug": "nepal-studies-8024",
+      "code": "8024",
+      "level": "as-and-a-level"
+    },
+    "nepal-studies-8024": {
+      "title": "Nepal Studies - 8024",
+      "full_slug": "as-and-a-level-nepal-studies-8024",
+      "subject_slug": "nepal-studies-8024",
+      "code": "8024",
+      "level": "as-and-a-level"
+    },
+    "9396": {
+      "title": "Physical Education - 9396",
+      "full_slug": "as-and-a-level-physical-education-9396",
+      "subject_slug": "physical-education-9396",
+      "code": "9396",
+      "level": "as-and-a-level"
+    },
+    "physical-education-9396": {
+      "title": "Physical Education - 9396",
+      "full_slug": "as-and-a-level-physical-education-9396",
+      "subject_slug": "physical-education-9396",
+      "code": "9396",
+      "level": "as-and-a-level"
+    },
+    "8780": {
+      "title": "Physical Science - 8780",
+      "full_slug": "as-and-a-level-physical-science-8780",
+      "subject_slug": "physical-science-8780",
+      "code": "8780",
+      "level": "as-and-a-level"
+    },
+    "physical-science-8780": {
+      "title": "Physical Science - 8780",
+      "full_slug": "as-and-a-level-physical-science-8780",
+      "subject_slug": "physical-science-8780",
+      "code": "8780",
+      "level": "as-and-a-level"
+    },
+    "9702": {
+      "title": "Physics - 9702",
+      "full_slug": "as-and-a-level-physics-9702",
+      "subject_slug": "physics-9702",
+      "code": "9702",
+      "level": "as-and-a-level"
+    },
+    "physics-9702": {
+      "title": "Physics - 9702",
+      "full_slug": "as-and-a-level-physics-9702",
+      "subject_slug": "physics-9702",
+      "code": "9702",
+      "level": "as-and-a-level"
+    },
+    "8672": {
+      "title": "Portuguese - 8672",
+      "full_slug": "as-and-a-level-portuguese-8672",
+      "subject_slug": "portuguese-8672",
+      "code": "8672",
+      "level": "as-and-a-level"
+    },
+    "portuguese-8672": {
+      "title": "Portuguese - 8672",
+      "full_slug": "as-and-a-level-portuguese-8672",
+      "subject_slug": "portuguese-8672",
+      "code": "8672",
+      "level": "as-and-a-level"
+    },
+    "8684": {
+      "title": "Portuguese - 8684",
+      "full_slug": "as-and-a-level-portuguese-8684",
+      "subject_slug": "portuguese-8684",
+      "code": "8684",
+      "level": "as-and-a-level"
+    },
+    "portuguese-8684": {
+      "title": "Portuguese - 8684",
+      "full_slug": "as-and-a-level-portuguese-8684",
+      "subject_slug": "portuguese-8684",
+      "code": "8684",
+      "level": "as-and-a-level"
+    },
+    "9718": {
+      "title": "Portuguese - 9718",
+      "full_slug": "as-and-a-level-portuguese-9718",
+      "subject_slug": "portuguese-9718",
+      "code": "9718",
+      "level": "as-and-a-level"
+    },
+    "portuguese-9718": {
+      "title": "Portuguese - 9718",
+      "full_slug": "as-and-a-level-portuguese-9718",
+      "subject_slug": "portuguese-9718",
+      "code": "9718",
+      "level": "as-and-a-level"
+    },
+    "9698": {
+      "title": "Psychology - 9698",
+      "full_slug": "as-and-a-level-psychology-9698",
+      "subject_slug": "psychology-9698",
+      "code": "9698",
+      "level": "as-and-a-level"
+    },
+    "psychology-9698": {
+      "title": "Psychology - 9698",
+      "full_slug": "as-and-a-level-psychology-9698",
+      "subject_slug": "psychology-9698",
+      "code": "9698",
+      "level": "as-and-a-level"
+    },
+    "9990": {
+      "title": "Psychology - 9990",
+      "full_slug": "as-and-a-level-psychology-9990",
+      "subject_slug": "psychology-9990",
+      "code": "9990",
+      "level": "as-and-a-level"
+    },
+    "psychology-9990": {
+      "title": "Psychology - 9990",
+      "full_slug": "as-and-a-level-psychology-9990",
+      "subject_slug": "psychology-9990",
+      "code": "9990",
+      "level": "as-and-a-level"
+    },
+    "9699": {
+      "title": "Sociology - 9699",
+      "full_slug": "as-and-a-level-sociology-9699",
+      "subject_slug": "sociology-9699",
+      "code": "9699",
+      "level": "as-and-a-level"
+    },
+    "sociology-9699": {
+      "title": "Sociology - 9699",
+      "full_slug": "as-and-a-level-sociology-9699",
+      "subject_slug": "sociology-9699",
+      "code": "9699",
+      "level": "as-and-a-level"
+    },
+    "8022": {
+      "title": "Spanish - 8022",
+      "full_slug": "as-and-a-level-spanish-8022",
+      "subject_slug": "spanish-8022",
+      "code": "8022",
+      "level": "as-and-a-level"
+    },
+    "spanish-8022": {
+      "title": "Spanish - 8022",
+      "full_slug": "as-and-a-level-spanish-8022",
+      "subject_slug": "spanish-8022",
+      "code": "8022",
+      "level": "as-and-a-level"
+    },
+    "8278": {
+      "title": "Spanish - 8278",
+      "full_slug": "as-and-a-level-spanish-8278",
+      "subject_slug": "spanish-8278",
+      "code": "8278",
+      "level": "as-and-a-level"
+    },
+    "spanish-8278": {
+      "title": "Spanish - 8278",
+      "full_slug": "as-and-a-level-spanish-8278",
+      "subject_slug": "spanish-8278",
+      "code": "8278",
+      "level": "as-and-a-level"
+    },
+    "8279": {
+      "title": "Spanish - 8279",
+      "full_slug": "as-and-a-level-spanish-8279",
+      "subject_slug": "spanish-8279",
+      "code": "8279",
+      "level": "as-and-a-level"
+    },
+    "spanish-8279": {
+      "title": "Spanish - 8279",
+      "full_slug": "as-and-a-level-spanish-8279",
+      "subject_slug": "spanish-8279",
+      "code": "8279",
+      "level": "as-and-a-level"
+    },
+    "8673": {
+      "title": "Spanish - 8673",
+      "full_slug": "as-and-a-level-spanish-8673",
+      "subject_slug": "spanish-8673",
+      "code": "8673",
+      "level": "as-and-a-level"
+    },
+    "spanish-8673": {
+      "title": "Spanish - 8673",
+      "full_slug": "as-and-a-level-spanish-8673",
+      "subject_slug": "spanish-8673",
+      "code": "8673",
+      "level": "as-and-a-level"
+    },
+    "8685": {
+      "title": "Spanish - 8685",
+      "full_slug": "as-and-a-level-spanish-8685",
+      "subject_slug": "spanish-8685",
+      "code": "8685",
+      "level": "as-and-a-level"
+    },
+    "spanish-8685": {
+      "title": "Spanish - 8685",
+      "full_slug": "as-and-a-level-spanish-8685",
+      "subject_slug": "spanish-8685",
+      "code": "8685",
+      "level": "as-and-a-level"
+    },
+    "9282": {
+      "title": "Spanish - 9282",
+      "full_slug": "as-and-a-level-spanish-9282",
+      "subject_slug": "spanish-9282",
+      "code": "9282",
+      "level": "as-and-a-level"
+    },
+    "spanish-9282": {
+      "title": "Spanish - 9282",
+      "full_slug": "as-and-a-level-spanish-9282",
+      "subject_slug": "spanish-9282",
+      "code": "9282",
+      "level": "as-and-a-level"
+    },
+    "9719": {
+      "title": "Spanish - 9719",
+      "full_slug": "as-and-a-level-spanish-9719",
+      "subject_slug": "spanish-9719",
+      "code": "9719",
+      "level": "as-and-a-level"
+    },
+    "spanish-9719": {
+      "title": "Spanish - 9719",
+      "full_slug": "as-and-a-level-spanish-9719",
+      "subject_slug": "spanish-9719",
+      "code": "9719",
+      "level": "as-and-a-level"
+    },
+    "8665": {
+      "title": "Spanish-8665",
+      "full_slug": "as-and-a-level-spanish-8665",
+      "subject_slug": "spanish-8665",
+      "code": "8665",
+      "level": "as-and-a-level"
+    },
+    "spanish-8665": {
+      "title": "Spanish-8665",
+      "full_slug": "as-and-a-level-spanish-8665",
+      "subject_slug": "spanish-8665",
+      "code": "8665",
+      "level": "as-and-a-level"
+    },
+    "9844": {
+      "title": "Spanish-9844",
+      "full_slug": "as-and-a-level-spanish-9844",
+      "subject_slug": "spanish-9844",
+      "code": "9844",
+      "level": "as-and-a-level"
+    },
+    "spanish-9844": {
+      "title": "Spanish-9844",
+      "full_slug": "as-and-a-level-spanish-9844",
+      "subject_slug": "spanish-9844",
+      "code": "9844",
+      "level": "as-and-a-level"
+    },
+    "8386": {
+      "title": "Sport & Physical Education-8386",
+      "full_slug": "as-and-a-level-sportphysical-education-8386",
+      "subject_slug": "sportphysical-education-8386",
+      "code": "8386",
+      "level": "as-and-a-level"
+    },
+    "sportphysical-education-8386": {
+      "title": "Sport & Physical Education-8386",
+      "full_slug": "as-and-a-level-sportphysical-education-8386",
+      "subject_slug": "sportphysical-education-8386",
+      "code": "8386",
+      "level": "as-and-a-level"
+    },
+    "9689": {
+      "title": "Tamil - 9689",
+      "full_slug": "as-and-a-level-tamil-9689",
+      "subject_slug": "tamil-9689",
+      "code": "9689",
+      "level": "as-and-a-level"
+    },
+    "tamil-9689": {
+      "title": "Tamil - 9689",
+      "full_slug": "as-and-a-level-tamil-9689",
+      "subject_slug": "tamil-9689",
+      "code": "9689",
+      "level": "as-and-a-level"
+    },
+    "8689": {
+      "title": "Tamil -8689",
+      "full_slug": "as-and-a-level-tamil8689",
+      "subject_slug": "tamil8689",
+      "code": "8689",
+      "level": "as-and-a-level"
+    },
+    "tamil8689": {
+      "title": "Tamil -8689",
+      "full_slug": "as-and-a-level-tamil8689",
+      "subject_slug": "tamil8689",
+      "code": "8689",
+      "level": "as-and-a-level"
+    },
+    "8690": {
+      "title": "Telugu - 8690",
+      "full_slug": "as-and-a-level-telugu-8690",
+      "subject_slug": "telugu-8690",
+      "code": "8690",
+      "level": "as-and-a-level"
+    },
+    "telugu-8690": {
+      "title": "Telugu - 8690",
+      "full_slug": "as-and-a-level-telugu-8690",
+      "subject_slug": "telugu-8690",
+      "code": "8690",
+      "level": "as-and-a-level"
+    },
+    "9690": {
+      "title": "Telugu - 9690",
+      "full_slug": "as-and-a-level-telugu-9690",
+      "subject_slug": "telugu-9690",
+      "code": "9690",
+      "level": "as-and-a-level"
+    },
+    "telugu-9690": {
+      "title": "Telugu - 9690",
+      "full_slug": "as-and-a-level-telugu-9690",
+      "subject_slug": "telugu-9690",
+      "code": "9690",
+      "level": "as-and-a-level"
+    },
+    "9694": {
+      "title": "Thinking Skills - 9694",
+      "full_slug": "as-and-a-level-thinking-skills-9694",
+      "subject_slug": "thinking-skills-9694",
+      "code": "9694",
+      "level": "as-and-a-level"
+    },
+    "thinking-skills-9694": {
+      "title": "Thinking Skills - 9694",
+      "full_slug": "as-and-a-level-thinking-skills-9694",
+      "subject_slug": "thinking-skills-9694",
+      "code": "9694",
+      "level": "as-and-a-level"
+    },
+    "9395": {
+      "title": "Travel and Tourism - 9395",
+      "full_slug": "as-and-a-level-travel-and-tourism-9395",
+      "subject_slug": "travel-and-tourism-9395",
+      "code": "9395",
+      "level": "as-and-a-level"
+    },
+    "travel-and-tourism-9395": {
+      "title": "Travel and Tourism - 9395",
+      "full_slug": "as-and-a-level-travel-and-tourism-9395",
+      "subject_slug": "travel-and-tourism-9395",
+      "code": "9395",
+      "level": "as-and-a-level"
+    },
+    "8686": {
+      "title": "Urdu - 8686",
+      "full_slug": "as-and-a-level-urdu-8686",
+      "subject_slug": "urdu-8686",
+      "code": "8686",
+      "level": "as-and-a-level"
+    },
+    "urdu-8686": {
+      "title": "Urdu - 8686",
+      "full_slug": "as-and-a-level-urdu-8686",
+      "subject_slug": "urdu-8686",
+      "code": "8686",
+      "level": "as-and-a-level"
+    },
+    "9676": {
+      "title": "Urdu - 9676",
+      "full_slug": "as-and-a-level-urdu-9676",
+      "subject_slug": "urdu-9676",
+      "code": "9676",
+      "level": "as-and-a-level"
+    },
+    "urdu-9676": {
+      "title": "Urdu - 9676",
+      "full_slug": "as-and-a-level-urdu-9676",
+      "subject_slug": "urdu-9676",
+      "code": "9676",
+      "level": "as-and-a-level"
+    },
+    "9686": {
+      "title": "Urdu - 9686",
+      "full_slug": "as-and-a-level-urdu-9686",
+      "subject_slug": "urdu-9686",
+      "code": "9686",
+      "level": "as-and-a-level"
+    },
+    "urdu-9686": {
+      "title": "Urdu - 9686",
+      "full_slug": "as-and-a-level-urdu-9686",
+      "subject_slug": "urdu-9686",
+      "code": "9686",
+      "level": "as-and-a-level"
+    }
+  }
+}

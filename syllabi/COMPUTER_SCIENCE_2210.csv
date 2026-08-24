@@ -1,0 +1,131 @@
+Unit,Topic,Subtopic
+UNIT 1: Data representation,1.1 Number systems,Understand that computers use binary to represent data and instructions
+UNIT 1: Data representation,1.1 Number systems,"Understand how to convert between binary, denary and hexadecimal numbers"
+UNIT 1: Data representation,1.1 Number systems,Understand the use of two’s complement to represent negative numbers
+UNIT 1: Data representation,1.1 Number systems,Understand the effects of binary shifts on binary numbers
+UNIT 1: Data representation,1.1 Number systems,Understand that data is measured using the binary units kibibyte (KiB) (210 bytes) and kilobyte (kB) (1000 bytes)
+UNIT 1: Data representation,1.1 Number systems,Understand that memory addresses/sizes are assigned using hexadecimal notation
+UNIT 1: Data representation,1.1 Number systems,Understand how to calculate the file size for sound and images
+UNIT 1: Data representation,"1.2 Text, sound and images",Understand that character sets are used to represent text
+UNIT 1: Data representation,"1.2 Text, sound and images",Understand American Standard Code for Information Interchange (ASCII) and Unicode
+UNIT 1: Data representation,"1.2 Text, sound and images",Understand how sound is represented and encoded using sampling rate and sampling resolution
+UNIT 1: Data representation,"1.2 Text, sound and images",Understand how to calculate the file size for sound
+UNIT 1: Data representation,"1.2 Text, sound and images","Understand how bitmaps are represented using pixels, image size, colour depth and resolution"
+UNIT 1: Data representation,"1.2 Text, sound and images",Understand how to calculate the file size for bitmaps
+UNIT 1: Data representation,1.3 Data compression,Understand the need for data compression
+UNIT 1: Data representation,1.3 Data compression,"Understand methods of compressing data (lossy, lossless)"
+UNIT 1: Data representation,1.3 Data compression,Understand that data can be decompressed
+UNIT 2: Data transmission,2.1 Data transmission,Understand what is meant by data transmission
+UNIT 2: Data transmission,2.1 Data transmission,Explain the advantages and disadvantages of using serial and parallel transmission
+UNIT 2: Data transmission,2.1 Data transmission,"Understand what is meant by simplex, half-duplex and duplex data transmission"
+UNIT 2: Data transmission,2.1 Data transmission,Understand the structure of a data packet
+UNIT 2: Data transmission,2.1 Data transmission,Explain the process of packet switching
+UNIT 2: Data transmission,2.1 Data transmission,Understand the purpose of the universal serial bus (USB) interface
+UNIT 2: Data transmission,2.1 Data transmission,Understand how USB is used to transmit data
+UNIT 2: Data transmission,2.2 Error detection and correction,Understand how a check digit and parity bits are used for error detection
+UNIT 2: Data transmission,2.2 Error detection and correction,Understand how parity blocks are used for error detection and correction
+UNIT 2: Data transmission,2.2 Error detection and correction,Understand how checksums and automatic repeat request (ARQ) are used for error detection
+UNIT 2: Data transmission,2.2 Error detection and correction,Understand how echo checks are used for error detection
+UNIT 3: Hardware,3.1 Computer architecture,Understand the role of the central processing unit (CPU) in a computer
+UNIT 3: Hardware,3.1 Computer architecture,Understand what is meant by a microprocessor
+UNIT 3: Hardware,3.1 Computer architecture,"Understand the purpose of the components in a CPU, in a computer that has a Von Neumann architecture"
+UNIT 3: Hardware,3.1 Computer architecture,Describe the process of the fetch–decode–execute (FDE) cycle including the role of each component in the process
+UNIT 3: Hardware,3.1 Computer architecture,"Understand what is meant by a core, cache and clock in a CPU"
+UNIT 3: Hardware,3.1 Computer architecture,"Explain how core, cache and clock can affect the performance of a CPU"
+UNIT 3: Hardware,3.1 Computer architecture,Understand the purpose and use of an instruction set for a CPU
+UNIT 3: Hardware,3.1 Computer architecture,Describe the purpose and characteristics of an embedded system
+UNIT 3: Hardware,3.1 Computer architecture,Identify devices in which embedded systems are commonly used
+UNIT 3: Hardware,3.2 Input and output devices,Understand what is meant by an input device and why it is required
+UNIT 3: Hardware,3.2 Input and output devices,Understand what is meant by an output device and why it is required
+UNIT 3: Hardware,3.2 Input and output devices,Understand what is meant by a sensor and the purposes of sensors
+UNIT 3: Hardware,3.2 Input and output devices,Identify the type of data captured by each sensor
+UNIT 3: Hardware,3.2 Input and output devices,Understand when each sensor would be used
+UNIT 3: Hardware,3.2 Input and output devices,Select the most suitable sensor for a given context
+UNIT 3: Hardware,3.3 Data storage,Understand what is meant by primary storage
+UNIT 3: Hardware,3.3 Data storage,Understand what is meant by secondary storage
+UNIT 3: Hardware,3.3 Data storage,"Describe the operation of magnetic, optical and solid-state (flash memory) storage"
+UNIT 3: Hardware,3.3 Data storage,"Give examples of magnetic, optical and solid-state storage"
+UNIT 3: Hardware,3.3 Data storage,"Understand what is meant by virtual memory, how it is created and used"
+UNIT 3: Hardware,3.3 Data storage,Understand why virtual memory is necessary
+UNIT 3: Hardware,3.3 Data storage,Understand what is meant by cloud storage
+UNIT 3: Hardware,3.3 Data storage,Explain the advantages and disadvantages of storing data on the cloud in comparison to storing it locally
+UNIT 3: Hardware,3.4 Network hardware,Understand that a computer needs a network interface card (NIC) to access a network
+UNIT 3: Hardware,3.4 Network hardware,"Understand what is meant by and the purpose of a media access control (MAC) address, including its structure"
+UNIT 3: Hardware,3.4 Network hardware,Understand what is meant by and the purpose of an internet protocol (IP) address
+UNIT 3: Hardware,3.4 Network hardware,Understand that there are different types of IP address
+UNIT 3: Hardware,3.4 Network hardware,Describe the role of a router in a network
+UNIT 4: Software,4.1 Types of software and interrupts,Describe the difference between system software and application software and provide examples of each
+UNIT 4: Software,4.1 Types of software and interrupts,Describe the role and basic functions of an operating system
+UNIT 4: Software,4.1 Types of software and interrupts,"Understand how hardware, firmware and an operating system are required to run applications software"
+UNIT 4: Software,4.1 Types of software and interrupts,Describe the role and operation of interrupts
+UNIT 4: Software,"4.2 Types of programming language, translators and integrated development environments (IDEs)","Explain what is meant by a high-level language and a low-level language, including the advantages and disadvantages of each"
+UNIT 4: Software,"4.2 Types of programming language, translators and integrated development environments (IDEs)",Understand that assembly language is a form of low-level language that uses mnemonics
+UNIT 4: Software,"4.2 Types of programming language, translators and integrated development environments (IDEs)",Understand that an assembler is needed to translate an assembly language program into machine code
+UNIT 4: Software,"4.2 Types of programming language, translators and integrated development environments (IDEs)","Describe the operation of a compiler and an interpreter, including how high-level language is translated by each and how errors are reported"
+UNIT 4: Software,"4.2 Types of programming language, translators and integrated development environments (IDEs)",Explain the advantages and disadvantages of a compiler and an interpreter
+UNIT 4: Software,"4.2 Types of programming language, translators and integrated development environments (IDEs)",Explain the role of an IDE in writing program code and the common functions IDEs provide
+UNIT 5: The internet and its uses,5.1 The internet and the world wide web,Understand the difference between the internet and the world wide web
+UNIT 5: The internet and its uses,5.1 The internet and the world wide web,Understand what is meant by a uniform resource locator (URL)
+UNIT 5: The internet and its uses,5.1 The internet and the world wide web,Describe the purpose and operation of hypertext transfer protocol (HTTP) and hypertext transfer protocol secure (HTTPS)
+UNIT 5: The internet and its uses,5.1 The internet and the world wide web,Explain the purpose and functions of a web browser
+UNIT 5: The internet and its uses,5.1 The internet and the world wide web,"Describe how web pages are located, retrieved and displayed on a device when a user enters a URL"
+UNIT 5: The internet and its uses,5.1 The internet and the world wide web,"Explain what is meant by cookies and how they are used, including session cookies and persistent cookies"
+UNIT 5: The internet and its uses,5.2 Digital currency,Understand the concept of a digital currency and how digital currencies are used
+UNIT 5: The internet and its uses,5.2 Digital currency,Understand the process of blockchain and how it is used to track digital currency transactions
+UNIT 5: The internet and its uses,5.3 Cyber security,"Describe the processes involved in, and the aim of carrying out, a range of cyber security threats"
+UNIT 5: The internet and its uses,5.3 Cyber security,Explain how a range of solutions are used to help keep data safe from security threats
+UNIT 6: Automated and emerging technologies,6.1 Automated systems,"Describe how sensors, microprocessors and actuators can be used in collaboration to create automated systems"
+UNIT 6: Automated and emerging technologies,6.1 Automated systems,Describe the advantages and disadvantages of an automated system used for a given scenario
+UNIT 6: Automated and emerging technologies,6.2 Robotics,Understand what is meant by robotics
+UNIT 6: Automated and emerging technologies,6.2 Robotics,Describe the characteristics of a robot
+UNIT 6: Automated and emerging technologies,6.2 Robotics,Understand the roles that robots can perform and describe the advantages and disadvantages of their use
+UNIT 6: Automated and emerging technologies,6.3 Artificial intelligence,Understand what is meant by artificial intelligence (AI)
+UNIT 6: Automated and emerging technologies,6.3 Artificial intelligence,"Describe the main characteristics of AI as the collection of data and the rules for using that data, the ability to reason, and can include the ability to learn and adapt"
+UNIT 6: Automated and emerging technologies,6.3 Artificial intelligence,Explain the basic operation and components of AI systems to simulate intelligent behaviour
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,"Understand the program development life cycle, limited to: analysis, design, coding and testing"
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,"Understand that every computer system is made up of sub-systems, which are made up of further sub-systems"
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Understand how a problem can be decomposed into its component parts
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Use different methods to design and construct a solution to a problem
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Explain the purpose of a given algorithm
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Understand standard methods of solution
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Understand the need for validation checks to be made on input data and the different types of validation check
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Understand the need for verification checks to be made on input data and the different types of verification check
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Suggest and apply suitable test data
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Complete a trace table to document a dry-run of an algorithm
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,Identify errors in given algorithms and suggest ways of correcting these errors
+UNIT 7: Algorithm design and problem-solving,7.1 Algorithm design and problem-solving,"Write and amend algorithms for given problems or scenarios, using: pseudocode, program code and flowcharts"
+UNIT 8: Programming,8.1 Programming concepts,Declare and use variables and constants
+UNIT 8: Programming,8.1 Programming concepts,Understand and use the basic data types
+UNIT 8: Programming,8.1 Programming concepts,Understand and use input and output
+UNIT 8: Programming,8.1 Programming concepts,Understand and use the concept of sequence
+UNIT 8: Programming,8.1 Programming concepts,Understand and use the concept of selection
+UNIT 8: Programming,8.1 Programming concepts,Understand and use the concept of iteration
+UNIT 8: Programming,8.1 Programming concepts,Understand and use the concepts of totalling and counting
+UNIT 8: Programming,8.1 Programming concepts,Understand and use the concept of string handling
+UNIT 8: Programming,8.1 Programming concepts,"Understand and use arithmetic, relational and logical operators"
+UNIT 8: Programming,8.1 Programming concepts,Understand and use nested statements
+UNIT 8: Programming,8.1 Programming concepts,"Understand what is meant by procedures, functions and parameters"
+UNIT 8: Programming,8.1 Programming concepts,"Define and use procedures and functions, with or without parameters"
+UNIT 8: Programming,8.1 Programming concepts,Understand and use local and global variables
+UNIT 8: Programming,8.1 Programming concepts,Understand and use library routines
+UNIT 8: Programming,8.1 Programming concepts,Understand how to create a maintainable program
+UNIT 8: Programming,8.2 Arrays,Declare and use one-dimensional (1D) and two-dimensional (2D) arrays
+UNIT 8: Programming,8.2 Arrays,Understand the use of arrays
+UNIT 8: Programming,8.2 Arrays,Write values into and read values from an array using iteration
+UNIT 8: Programming,8.3 File handling,Understand the purpose of storing data in a file to be used by a program
+UNIT 8: Programming,8.3 File handling,"Open, close and use a file for reading and writing"
+UNIT 9: Databases,9.1 Databases,Define a single-table database from given data storage requirements
+UNIT 9: Databases,9.1 Databases,Suggest suitable basic data types
+UNIT 9: Databases,9.1 Databases,Understand the purpose of a primary key and identify a suitable primary key for a given database table
+UNIT 9: Databases,9.1 Databases,"Read, understand and complete structured query language (SQL) scripts to query data stored in a single database table"
+UNIT 10: Boolean logic,10.1 Boolean logic,Identify and use the standard symbols for logic gates
+UNIT 10: Boolean logic,10.1 Boolean logic,Define and understand the functions of the logic gates
+UNIT 10: Boolean logic,10.1 Boolean logic,Use logic gates to create given logic circuits from a problem statement
+UNIT 10: Boolean logic,10.1 Boolean logic,Use logic gates to create given logic circuits from a logic expression
+UNIT 10: Boolean logic,10.1 Boolean logic,Use logic gates to create given logic circuits from a truth table
+UNIT 10: Boolean logic,10.1 Boolean logic,Complete a truth table from a problem statement
+UNIT 10: Boolean logic,10.1 Boolean logic,Complete a truth table from a logic expression
+UNIT 10: Boolean logic,10.1 Boolean logic,Complete a truth table from a logic circuit
+UNIT 10: Boolean logic,10.1 Boolean logic,Write a logic expression from a problem statement
+UNIT 10: Boolean logic,10.1 Boolean logic,Write a logic expression from a logic circuit
+UNIT 10: Boolean logic,10.1 Boolean logic,Write a logic expression from a truth table
