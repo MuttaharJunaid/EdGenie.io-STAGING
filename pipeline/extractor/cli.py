@@ -234,6 +234,3 @@ def process_dir(
 
 if __name__ == "__main__":
     app()
-
-
-The above content shows the entire, complete file contents of the requested file.

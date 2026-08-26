@@ -327,20 +327,21 @@ class CambridgeVisualExtractor:
 
     # ── MCQ Paper Support ─────────────────────────────────────────────────────
 
-    def _is_mcq_paper(self, doc: fitz.Document) -> bool:
+    def _is_mcq_paper(self, doc: fitz.Document, pdf_path: Optional[Path] = None) -> bool:
         """
         Return True when this is an MCQ-style paper (papers 11, 12, 13).
 
-        Detection heuristics (all must hold):
-        1. No page in the first 6 pages contains any 'Fig. N.M' caption — MCQ
-           papers never caption their inline diagrams.
-        2. At least 3 pages contain question text in the "NN text..." format
-           at x0 ≈ 50 — the MCQ question-number prefix style.
-
-        This is robust enough to distinguish MCQ papers from structured papers
-        without relying on the filename (which the caller may not pass in a
-        normalized form).
+        Detection heuristics:
+        1. Filename check: if filename stem ends with _11, _12, _13, _1, _qp_11, _qp_12, _qp_13, _qp_1.
+        2. Layout check: No page in the first 8 pages contains any 'Fig. N.M' caption
+           AND at least 2 pages contain MCQ question anchors (using both combined
+           and split-line single-digit anchor patterns).
         """
+        if pdf_path:
+            stem = pdf_path.stem.lower()
+            if any(stem.endswith(sfx) for sfx in ["_11", "_12", "_13", "_1", "_qp_11", "_qp_12", "_qp_13", "_qp_1"]):
+                return True
+
         caption_count = 0
         mcq_q_page_count = 0
 
@@ -350,14 +351,11 @@ class CambridgeVisualExtractor:
             captions = self.get_captions(lines)
             if captions:
                 caption_count += len(captions)
-            # Check for MCQ question-number prefix style
-            for ln in lines:
-                if ln.bbox.x0 <= MCQ_Q_X0_MAX and ln.bbox.y0 > self.header_y:
-                    if MCQ_Q_PATTERN.match(ln.text.strip()):
-                        mcq_q_page_count += 1
-                        break  # one per page is enough
+            anchors = self.get_mcq_question_anchors(lines)
+            if anchors:
+                mcq_q_page_count += 1
 
-        return caption_count == 0 and mcq_q_page_count >= 3
+        return caption_count == 0 and mcq_q_page_count >= 2
 
     def get_mcq_question_anchors(self, lines: List[Line]) -> List[Tuple[int, float, float]]:
         """
@@ -532,7 +530,7 @@ class CambridgeVisualExtractor:
 
         # Detect MCQ papers (11/12/13) up front — they have no Fig. N.M captions
         # and use a different question-anchor scheme.
-        is_mcq = self._is_mcq_paper(doc)
+        is_mcq = self._is_mcq_paper(doc, pdf_path)
         if is_mcq:
             logger.info("  Detected MCQ paper format — using question-span extractor")
 
