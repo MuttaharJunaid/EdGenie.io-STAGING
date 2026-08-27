@@ -170,3 +170,76 @@ def test_process_dir_sorting_and_er_gt_exclusion(tmp_path):
     # Verify natural order sorting (qp_11 comes before qp_12)
     assert filenames == ["5054_s23_qp_11.pdf", "5054_s23_qp_12.pdf"]
 
+
+def test_pymupdf_extractor_imports():
+    """Smoke test: PyMuPDFExtractor can be imported and instantiated."""
+    from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+    extractor = PyMuPDFExtractor()
+    assert extractor is not None
+
+
+def test_classifier_agent_merge():
+    """ClassifierAgent.merge() correctly fills classification fields into skeleton records."""
+    from pipeline.extractor.classifier_agent import ClassifierAgent
+    agent = ClassifierAgent()
+
+    records = [
+        {
+            "QuestionNumber": "Jun/11/2023/Q1",
+            "Question_text": "Define supply.",
+            "Unit": "",
+            "Topic": "",
+            "Topic_name": "",
+            "Sub_topic": [],
+            "Difficulty_score": 0,
+            "Difficulty_label": "",
+            "Command_words": [],
+            "Marks": 2,
+            "Parts": [],
+            "image": None,
+        }
+    ]
+
+    classifications = {
+        "Jun/11/2023/Q1": {
+            "question_number": "Jun/11/2023/Q1",
+            "Unit": "3",
+            "Topic": "3.1",
+            "Topic_name": "Supply and Demand",
+            "Sub_topic": ["Law of Supply"],
+            "Difficulty_score": 3,
+            "Difficulty_label": "easy",
+            "Command_words": ["define"],
+        }
+    }
+
+    merged = agent.merge(records, classifications)
+    assert merged[0]["Unit"] == "3"
+    assert merged[0]["Topic"] == "3.1"
+    assert merged[0]["Topic_name"] == "Supply and Demand"
+    assert merged[0]["Sub_topic"] == ["Law of Supply"]
+    assert merged[0]["Difficulty_score"] == 3
+    assert merged[0]["Difficulty_label"] == "easy"
+    assert merged[0]["Command_words"] == ["define"]
+    assert merged[0]["Question_text"] == "Define supply."
+    assert merged[0]["Marks"] == 2
+
+
+def test_classifier_agent_merge_ms_no_op():
+    """merge() is a no-op for MS records — AnswerNumber key, no classification fields."""
+    from pipeline.extractor.classifier_agent import ClassifierAgent
+    agent = ClassifierAgent()
+
+    records = [
+        {"AnswerNumber": "Jun/11/2023/Q1", "Answer_text": "Some answer", "Parts": [], "image": None}
+    ]
+    merged = agent.merge(records, {})
+    assert merged[0]["Answer_text"] == "Some answer"
+
+
+def test_pymupdf_extractor_fmt_qnum():
+    """_fmt_qnum produces the correct QuestionNumber format."""
+    from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+    ext = PyMuPDFExtractor()
+    result = ext._fmt_qnum(3, {"session": "nov", "variant": "41", "year": 2018})
+    assert result == "Nov/41/2018/Q3"

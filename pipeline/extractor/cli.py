@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import json
 from pathlib import Path
 from typing import Optional
@@ -33,6 +34,11 @@ def process(
     pdf_path: str = typer.Option(..., "--pdf", "-p", help="Path to raw PDF file"),
     syllabus_path: Optional[str] = typer.Option(None, "--syllabus", "-s", help="Path to syllabus CSV"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocessing even if output exists"),
+    duplicate: bool = typer.Option(
+        False, "--duplicate",
+        help="Use PyMuPDF layout extractor (no LLM for text extraction). "
+             "Classification/difficulty still uses Gemini. Output saved as *_dup.json."
+    ),
     log_level: str = typer.Option(settings.log_level, "--log-level", help="Logging level"),
 ):
     """Processes a single past paper or mark scheme PDF into structured and analyzed JSON."""
@@ -57,7 +63,8 @@ def process(
         console.print(f"[bold red]Error:[/bold red] Unable to determine CAIE document category of the PDF.")
         raise typer.Exit(code=1)
 
-    output_json_path = pdf.with_suffix(".json")
+    # Output path: *_dup.json for duplicate strategy, *.json for standard
+    output_json_path = pdf.with_name(pdf.stem + "_dup.json") if duplicate else pdf.with_suffix(".json")
     if output_json_path.exists() and not force:
         console.print(f"[yellow]Output file {output_json_path.name} already exists. Use --force to overwrite. Skipping.[/yellow]")
         return
@@ -66,7 +73,7 @@ def process(
     # E.g. 7707_s22_qp_12.pdf -> subject_code=7707, session=summer, year=2022, variant=12
     scraper_helper = PapaCambridgeScraper(target=None) # Just call class helper
     meta = scraper_helper.classify_pdf(pdf.name, "")
-    
+
     # Extract details from path structures if filename lacks them
     # E.g. storage/7707/2023/jun/filename.pdf
     parent_parts = pdf.parent.parts
@@ -76,8 +83,7 @@ def process(
     variant = meta.variant or "11"
 
     if len(parent_parts) >= 3:
-        # Check standard storage folders
-        # /storage/{subject_code}/{year}/{session}
+        # Check standard storage folders: /storage/{subject_code}/{year}/{session}
         try:
             possible_year = int(parent_parts[-2])
             year = possible_year
@@ -85,6 +91,13 @@ def process(
             subject_code = parent_parts[-3]
         except ValueError:
             pass
+
+    meta_context = {
+        "year": year,
+        "session": session,
+        "variant": variant,
+        "subject_code": subject_code,
+    }
 
     # 3. Load Syllabus
     syllabus_text = ""
@@ -97,38 +110,57 @@ def process(
         else:
             console.print(f"[bold yellow]Warning:[/bold yellow] Syllabus CSV file not found at '{syllabus_path}'.")
 
-    # 4. Check API keys — agentic parsing is the ONLY path
+    # 4. Check API keys — LLM is always needed (for classification at minimum)
     has_api_keys = os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not has_api_keys:
         console.print(
             f"[bold red]Error:[/bold red] No LLM API key found. "
-            "Set GOOGLE_API_KEY or OPENAI_API_KEY in your environment or .env file. "
-            "Agentic parsing requires an API key."
+            "Set GOOGLE_API_KEY or OPENAI_API_KEY in your environment or .env file."
         )
         raise typer.Exit(code=1)
 
-    # 5. Run Agentic Multimodal PDF Parser
     is_qp = category in [PaperCategory.MCQ_QP, PaperCategory.ESSAY_QP]
 
-    console.print(f"\n[bold green]3. Running AGENTIC Multimodal PDF Parser...[/bold green]")
-    meta_context = {
-        "year": year,
-        "session": session,
-        "variant": variant,
-        "subject_code": subject_code
-    }
+    if duplicate:
+        # ── Duplicate strategy: PyMuPDF layout extraction + Gemini classification only ──
+        console.print(f"\n[bold green]3. Running PyMuPDF Layout Extractor (--duplicate strategy)...[/bold green]")
+        from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+        from pipeline.extractor.classifier_agent import ClassifierAgent
 
-    from pipeline.extractor.agentic_parser import AgenticPDFParser
-    agentic_parser = AgenticPDFParser()
-    with console.status("[bold green]Sending raw PDF to Multimodal LLM..."):
-        parsed_records = agentic_parser.parse_pdf(pdf, category, syllabus_text, meta_context)
-    console.print(f"Agentic parser successfully extracted [green]{len(parsed_records)}[/green] records.")
+        layout_extractor = PyMuPDFExtractor()
+        with console.status("[bold green]Extracting text via layout analysis..."):
+            parsed_records = layout_extractor.extract(pdf, category, meta_context)
+        console.print(f"Layout extractor produced [green]{len(parsed_records)}[/green] skeleton records.")
 
-    if not parsed_records:
-        console.print(f"[bold red]Error:[/bold red] Agentic parser returned no records.")
-        raise typer.Exit(code=1)
+        if not parsed_records:
+            console.print(f"[bold red]Error:[/bold red] Layout extractor returned no records.")
+            raise typer.Exit(code=1)
 
-    # 6. Check for Stage 3 Visuals Manifest & Link Images
+        if is_qp:
+            if syllabus_text:
+                console.print(f"\n[bold green]4. Running Gemini Classification Pass (text-only, no PDF bytes)...[/bold green]")
+                classifier = ClassifierAgent()
+                with console.status("[bold green]Classifying questions via Gemini..."):
+                    classifications = classifier.classify(parsed_records, syllabus_text, category, meta_context)
+                parsed_records = classifier.merge(parsed_records, classifications)
+                console.print(f"  [green]Classified {len(classifications)} question(s).[/green]")
+            else:
+                console.print(f"[yellow]No syllabus provided — skipping Gemini classification pass. Topic/Difficulty fields will be empty.[/yellow]")
+
+    else:
+        # ── Standard strategy: full multimodal LLM extraction + classification ──
+        console.print(f"\n[bold green]3. Running AGENTIC Multimodal PDF Parser...[/bold green]")
+        from pipeline.extractor.agentic_parser import AgenticPDFParser
+        agentic_parser = AgenticPDFParser()
+        with console.status("[bold green]Sending raw PDF to Multimodal LLM..."):
+            parsed_records = agentic_parser.parse_pdf(pdf, category, syllabus_text, meta_context)
+        console.print(f"Agentic parser successfully extracted [green]{len(parsed_records)}[/green] records.")
+
+        if not parsed_records:
+            console.print(f"[bold red]Error:[/bold red] Agentic parser returned no records.")
+            raise typer.Exit(code=1)
+
+    # 5. Check for Stage 3 Visuals Manifest & Link Images
     visuals_manifest_path = pdf.parent / pdf.stem / "manifest.json"
     if visuals_manifest_path.exists():
         try:
@@ -152,8 +184,9 @@ def process(
         except Exception as e:
             logger.debug(f"Could not auto-link visuals manifest: {e}")
 
-    # 7. Write to JSON
-    console.print(f"\n[bold blue]4. Saving JSON Output...[/bold blue]")
+    # 6. Write to JSON
+    save_step = "5" if duplicate else "4"
+    console.print(f"\n[bold blue]{save_step}. Saving JSON Output...[/bold blue]")
     try:
         with open(output_json_path, "w") as f:
             json.dump(parsed_records, f, indent=2)
@@ -204,6 +237,10 @@ def process_dir(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory containing PDF files"),
     syllabus_path: Optional[str] = typer.Option(None, "--syllabus", "-s", help="Path to syllabus CSV"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocessing of existing files"),
+    duplicate: bool = typer.Option(
+        False, "--duplicate",
+        help="Use PyMuPDF layout extractor strategy for all papers (same as --duplicate in process)."
+    ),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
     """Processes all PDF past papers inside a directory."""
@@ -225,7 +262,9 @@ def process_dir(
     # Sort sequentially starting from the first stored PDF
     pdf_files.sort(key=lambda p: (str(p.parent).lower(), p.name.lower()))
 
+    strategy = "[bold cyan]duplicate (PyMuPDF)[/bold cyan]" if duplicate else "[bold cyan]standard (agentic LLM)[/bold cyan]"
     console.print(f"Found [bold cyan]{len(pdf_files)}[/bold cyan] PDF papers to process (excluding Examiner Reports and Grade Thresholds).")
+    console.print(f"Strategy: {strategy}")
 
     processed_count = 0
     for pdf in pdf_files:
@@ -235,6 +274,7 @@ def process_dir(
                 pdf_path=str(pdf),
                 syllabus_path=syllabus_path,
                 force=force,
+                duplicate=duplicate,
                 log_level=log_level
             )
             processed_count += 1
