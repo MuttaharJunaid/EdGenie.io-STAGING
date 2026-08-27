@@ -49,6 +49,10 @@ def process(
     category = PaperTypeDetector.detect(pdf)
     console.print(f"Detected Category: [bold yellow]{category.name}[/bold yellow] ([cyan]{category.value}[/cyan])")
 
+    if any(sfx in pdf.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt."]):
+        console.print(f"[yellow]Skipping '{pdf.name}' — Examiner Reports (_er_) and Grade Thresholds (_gt_) are excluded from text extraction.[/yellow]")
+        return
+
     if category == PaperCategory.OTHER:
         console.print(f"[bold red]Error:[/bold red] Unable to determine CAIE document category of the PDF.")
         raise typer.Exit(code=1)
@@ -56,7 +60,7 @@ def process(
     output_json_path = pdf.with_suffix(".json")
     if output_json_path.exists() and not force:
         console.print(f"[yellow]Output file {output_json_path.name} already exists. Use --force to overwrite. Skipping.[/yellow]")
-        raise typer.Exit(code=0)
+        return
 
     # 2. Parse Metadata from Filename
     # E.g. 7707_s22_qp_12.pdf -> subject_code=7707, session=summer, year=2022, variant=12
@@ -209,12 +213,19 @@ def process_dir(
         console.print(f"[bold red]Error:[/bold red] Directory does not exist at '{directory_path}'")
         raise typer.Exit(code=1)
 
-    pdf_files = list(dir_path.glob("**/*.pdf"))
+    all_pdfs = list(dir_path.glob("**/*.pdf"))
+    pdf_files = [
+        p for p in all_pdfs
+        if not any(sfx in p.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt."])
+    ]
     if not pdf_files:
-        console.print(f"[yellow]No PDF files found in '{directory_path}'[/yellow]")
+        console.print(f"[yellow]No valid Question Paper / Mark Scheme PDFs found in '{directory_path}' (excluded _er_ and _gt_ files).[/yellow]")
         raise typer.Exit(code=0)
 
-    console.print(f"Found [bold cyan]{len(pdf_files)}[/bold cyan] PDF papers to process.")
+    # Sort sequentially starting from the first stored PDF
+    pdf_files.sort(key=lambda p: (str(p.parent).lower(), p.name.lower()))
+
+    console.print(f"Found [bold cyan]{len(pdf_files)}[/bold cyan] PDF papers to process (excluding Examiner Reports and Grade Thresholds).")
 
     processed_count = 0
     for pdf in pdf_files:

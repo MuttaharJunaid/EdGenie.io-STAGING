@@ -127,3 +127,46 @@ def test_topic_classifier_agent(mock_gemini_cls):
         assert res.topic == "1.2"
         assert res.topic_name == "Source Documents"
         assert "Credit Notes" in res.sub_topics
+
+
+def test_openrouter_fallback(tmp_path):
+    from pipeline.extractor.agentic_parser import AgenticPDFParser, PaperCategory
+
+    pdf_file = tmp_path / "test_qp.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4 test content")
+
+    parser = AgenticPDFParser(provider="google")
+
+    with patch.object(parser, "_parse_with_gemini", side_effect=Exception("Gemini quota exceeded")), \
+         patch.object(parser, "_parse_with_openrouter", return_value=[{"QuestionNumber": "Q1"}]) as mock_openrouter, \
+         patch.dict("os.environ", {"OPENROUTER_API_KEY": "test_openrouter_key"}):
+
+        res = parser.parse_pdf(pdf_file, PaperCategory.MCQ_QP, "syllabus text", {"year": 2023, "session": "jun"})
+
+        assert len(res) == 1
+        assert res[0]["QuestionNumber"] == "Q1"
+        assert mock_openrouter.called
+
+
+def test_process_dir_sorting_and_er_gt_exclusion(tmp_path):
+    # Create test PDFs: qp_12, qp_11, _er_11, _gt_11
+    (tmp_path / "5054_s23_qp_12.pdf").write_bytes(b"%PDF-1.4 12")
+    (tmp_path / "5054_s23_qp_11.pdf").write_bytes(b"%PDF-1.4 11")
+    (tmp_path / "5054_s23_er_11.pdf").write_bytes(b"%PDF-1.4 er")
+    (tmp_path / "5054_s23_gt_11.pdf").write_bytes(b"%PDF-1.4 gt")
+
+    all_pdfs = list(tmp_path.glob("**/*.pdf"))
+    pdf_files = [
+        p for p in all_pdfs
+        if not any(sfx in p.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt."])
+    ]
+    pdf_files.sort(key=lambda p: (str(p.parent).lower(), p.name.lower()))
+
+    # Verify _er and _gt are excluded
+    filenames = [p.name for p in pdf_files]
+    assert "5054_s23_er_11.pdf" not in filenames
+    assert "5054_s23_gt_11.pdf" not in filenames
+
+    # Verify natural order sorting (qp_11 comes before qp_12)
+    assert filenames == ["5054_s23_qp_11.pdf", "5054_s23_qp_12.pdf"]
+

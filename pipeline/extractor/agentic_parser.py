@@ -133,11 +133,83 @@ DIRECTIONS FOR ESSAY MARK SCHEMES:
         schema, prompt = self._get_schema_and_prompt(category, syllabus_text, meta_context)
 
         if self.provider == "google":
-            return self._parse_with_gemini(pdf_path, schema, prompt)
+            try:
+                return self._parse_with_gemini(pdf_path, schema, prompt)
+            except Exception as gemini_err:
+                logger.warning(
+                    f"Gemini text-extraction failed for {pdf_path.name} ({gemini_err}). "
+                    "Attempting OpenRouter fallback..."
+                )
+                openrouter_key = os.getenv("OPENROUTER_API_KEY")
+                if openrouter_key:
+                    return self._parse_with_openrouter(pdf_path, schema, prompt)
+                else:
+                    logger.error("OPENROUTER_API_KEY environment variable not set; cannot fallback to OpenRouter.")
+                    raise gemini_err
+        elif self.provider == "openrouter":
+            return self._parse_with_openrouter(pdf_path, schema, prompt)
         elif self.provider == "openai":
             return self._parse_with_openai(pdf_path, schema, prompt)
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
+
+    def _parse_with_openrouter(self, pdf_path: Path, schema: Any, prompt: str) -> List[Dict[str, Any]]:
+        """Sends exact same prompt and payload to OpenRouter as fallback when Gemini fails."""
+        logger.info(f"Parsing PDF via OpenRouter fallback: {pdf_path.name}")
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable not set.")
+
+        model = os.getenv("OPENROUTER_MODEL", getattr(settings, "openrouter_model", "google/gemini-2.5-flash"))
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key
+        )
+
+        doc = fitz.open(pdf_path)
+        contents: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+
+        for page in doc:
+            pix = page.get_pixmap(dpi=150)
+            img_bytes = pix.tobytes("png")
+            b64_img = base64.b64encode(img_bytes).decode("utf-8")
+            contents.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{b64_img}"
+                }
+            })
+
+        try:
+            completion = client.beta.chat.completions.parse(
+                model=model,
+                messages=[{"role": "user", "content": contents}],
+                response_format=schema,
+                temperature=0.1
+            )
+            parsed_response = completion.choices[0].message.parsed
+            if hasattr(parsed_response, "questions"):
+                return [q.model_dump() for q in parsed_response.questions]
+            elif hasattr(parsed_response, "answers"):
+                return [a.model_dump() for a in parsed_response.answers]
+            return parsed_response.model_dump()
+        except Exception as e:
+            logger.warning(f"OpenRouter structured parse attempt failed ({e}). Retrying with json_object response_format...")
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": contents}],
+                response_format={"type": "json_object"},
+                temperature=0.1
+            )
+            raw_text = response.choices[0].message.content
+            if not raw_text or not raw_text.strip():
+                raise ValueError("OpenRouter returned an empty response.")
+            data = json.loads(raw_text)
+            if "questions" in data:
+                return data["questions"]
+            elif "answers" in data:
+                return data["answers"]
+            return data
 
     def _parse_with_gemini(self, pdf_path: Path, schema: Any, prompt: str) -> List[Dict[str, Any]]:
         """Uses official Google GenAI SDK to send raw PDF bytes to Gemini, with optional context caching."""
