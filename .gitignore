@@ -26,6 +26,7 @@ env/
 .env
 .env.local
 .env.production
+Firebase-key.json
 
 # ── Pipeline storage (downloaded PDFs) ──
 pipeline/storage/*

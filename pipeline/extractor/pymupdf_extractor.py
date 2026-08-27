@@ -94,9 +94,10 @@ class PyMuPDFExtractor:
                 page_data.append(None)
                 continue
             if mcq:
-                anchors = self._cve.get_mcq_question_anchors(lines)
+                raw_anchors = self._cve.get_mcq_question_anchors(lines)
             else:
-                anchors = self._cve.get_question_anchors(lines)
+                raw_anchors = self._cve.get_question_anchors(lines)
+            anchors = [(a[0], a[1]) for a in raw_anchors]
             captions = self._cve.get_captions(lines)
             bands = []
             for cap in captions:
@@ -147,7 +148,7 @@ class PyMuPDFExtractor:
                 if self._is_boilerplate(ln):
                     continue
                 anchor_here = next(
-                    (qn for qn, y0, _y1 in pd["anchors"] if abs(y0 - ln.bbox.y0) < 0.6), None
+                    (qn for qn, y0 in pd["anchors"] if abs(y0 - ln.bbox.y0) < 0.6), None
                 )
                 if anchor_here is not None:
                     current_q = anchor_here
@@ -239,7 +240,7 @@ class PyMuPDFExtractor:
                 if self._is_boilerplate(ln):
                     continue
                 anchor_here = next(
-                    (qn for qn, y0, _y1 in pd["anchors"] if abs(y0 - ln.bbox.y0) < 0.6), None
+                    (qn for qn, y0 in pd["anchors"] if abs(y0 - ln.bbox.y0) < 0.6), None
                 )
                 if anchor_here is not None:
                     current_q = anchor_here
@@ -307,7 +308,7 @@ class PyMuPDFExtractor:
                 if self._is_boilerplate(ln):
                     continue
                 anchor_here = next(
-                    (qn for qn, y0, _y1 in pd["anchors"] if abs(y0 - ln.bbox.y0) < 0.6), None
+                    (qn for qn, y0 in pd["anchors"] if abs(y0 - ln.bbox.y0) < 0.6), None
                 )
                 if anchor_here is not None:
                     current_q = anchor_here

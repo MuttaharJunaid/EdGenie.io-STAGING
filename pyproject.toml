@@ -44,6 +44,10 @@ dependencies = [
 
     # Browser automation (Stage 3 — visual extraction)
     "playwright>=1.45",
+
+    # Database & Cloud Storage (Stage 4 — Ingestion & Assets)
+    "pymongo>=4.6",
+    "firebase-admin>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +63,7 @@ dev = [
 edgenie-scraper = "pipeline.scraper.cli:app"
 edgenie-extractor = "pipeline.extractor.cli:app"
 edgenie-visuals = "pipeline.visuals.cli:app"
+edgenie-ingestor = "pipeline.ingestion.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["pipeline*"]
