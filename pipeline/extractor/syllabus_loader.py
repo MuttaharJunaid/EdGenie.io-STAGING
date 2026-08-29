@@ -11,6 +11,47 @@ class SyllabusLoader:
     """Loads and parses the admin-provided CSV syllabus for topic classification."""
 
     @staticmethod
+    def resolve_syllabus_path(syllabus_path: str | Path | None, subject_code: str = "") -> Path | None:
+        """
+        Resolves a syllabus path across common directory layouts and filenames:
+        - Direct path as provided (e.g. 'syllabi/PHYSICS_5054.csv')
+        - Project root relative path
+        - 'syllabi/' directory (e.g. 'pipeline/syllabi/PHYSICS_5054.csv' -> 'syllabi/PHYSICS_5054.csv')
+        - Subject code lookup in 'syllabi/' (e.g. subject_code='5054' -> 'syllabi/PHYSICS_5054.csv')
+        """
+        project_root = Path(__file__).resolve().parent.parent.parent
+        syllabi_dir = project_root / "syllabi"
+
+        if syllabus_path:
+            p = Path(syllabus_path)
+            # 1. Direct path exists
+            if p.exists() and p.is_file():
+                return p.resolve()
+
+            # 2. Relative to project root
+            root_p = project_root / p
+            if root_p.exists() and root_p.is_file():
+                return root_p.resolve()
+
+            # 3. Just the filename inside syllabi/
+            name_p = syllabi_dir / p.name
+            if name_p.exists() and name_p.is_file():
+                return name_p.resolve()
+
+            # 4. Search by stem in syllabi/
+            matches = list(syllabi_dir.glob(f"*{p.stem}*.csv"))
+            if matches:
+                return matches[0].resolve()
+
+        # 5. Fallback: auto-discover by subject_code in syllabi/
+        if subject_code:
+            code_matches = list(syllabi_dir.glob(f"*{subject_code}*.csv"))
+            if code_matches:
+                return code_matches[0].resolve()
+
+        return None
+
+    @staticmethod
     @functools.lru_cache(maxsize=32)
     def load_syllabus(csv_path: Path) -> list[SyllabusUnit]:
         """

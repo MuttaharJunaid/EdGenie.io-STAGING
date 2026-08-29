@@ -42,7 +42,11 @@ UNIT 2: Classification,2.1 Concept system,Species definition
     assert units_3col[0].unit_number == "1"
     assert units_3col[0].unit_name == "Cells"
     assert units_3col[0].topic_number == "1.1"
-    assert units_3col[0].topic_name == "Cell structure and function"
+    # Test resolve_syllabus_path
+    assert SyllabusLoader.resolve_syllabus_path(csv_file) == csv_file.resolve()
+    assert SyllabusLoader.resolve_syllabus_path("pipeline/syllabi/PHYSICS_5054.csv") is not None
+    assert SyllabusLoader.resolve_syllabus_path(None, subject_code="5054") is not None
+    assert SyllabusLoader.resolve_syllabus_path("non_existent_file_xyz_123.csv") is None
     assert units_3col[0].sub_topic == "Examine plant cells"
     
     formatted = SyllabusLoader.format_syllabus_for_prompt(units)

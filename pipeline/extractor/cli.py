@@ -101,14 +101,13 @@ def process(
 
     # 3. Load Syllabus
     syllabus_text = ""
-    if syllabus_path:
-        csv_path = Path(syllabus_path)
-        if csv_path.exists():
-            console.print(f"\n[bold blue]2. Loading Syllabus...[/bold blue]")
-            syllabus_units = SyllabusLoader.load_syllabus(csv_path)
-            syllabus_text = SyllabusLoader.format_syllabus_for_prompt(syllabus_units)
-        else:
-            console.print(f"[bold yellow]Warning:[/bold yellow] Syllabus CSV file not found at '{syllabus_path}'.")
+    resolved_syllabus = SyllabusLoader.resolve_syllabus_path(syllabus_path, subject_code=str(meta_context.get("subject_code", "")))
+    if resolved_syllabus and resolved_syllabus.exists():
+        console.print(f"\n[bold blue]2. Loading Syllabus ({resolved_syllabus.name})...[/bold blue]")
+        syllabus_units = SyllabusLoader.load_syllabus(resolved_syllabus)
+        syllabus_text = SyllabusLoader.format_syllabus_for_prompt(syllabus_units)
+    elif syllabus_path:
+        console.print(f"[bold yellow]Warning:[/bold yellow] Syllabus CSV file not found at '{syllabus_path}' or in 'syllabi/' directory.")
 
     # 4. Check API keys — LLM is always needed (for classification at minimum)
     has_api_keys = os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
