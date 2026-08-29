@@ -16,11 +16,13 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
+
+from pipeline.syllabus.crawler import CambridgeSyllabusCrawler
 
 logger = logging.getLogger(__name__)
 
@@ -53,33 +55,7 @@ class SyllabusBuilder:
                 "Add it to your .env file before running edgenie-syllabus."
             )
         self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-
-    # ── Cambridge URL helper ───────────────────────────────────────────────────
-
-    @staticmethod
-    def cambridge_page_url(subject: str, code: str, level: str) -> str:
-        """
-        Build the canonical Cambridge International subject page URL.
-
-        level must be one of: o-level, a-level, igcse
-        """
-        slug = subject.strip().lower().replace(" ", "-").replace("_", "-")
-        code = str(code).strip()
-
-        level_map = {
-            "o-level": "cambridge-o-level",
-            "o_level": "cambridge-o-level",
-            "olevel": "cambridge-o-level",
-            "a-level": "cambridge-international-as-and-a-level",
-            "a_level": "cambridge-international-as-and-a-level",
-            "alevel": "cambridge-international-as-and-a-level",
-            "igcse": "cambridge-igcse",
-        }
-        prefix = level_map.get(level.lower().strip(), f"cambridge-{level.lower()}")
-        return (
-            f"https://www.cambridgeinternational.org/programmes-and-qualifications/"
-            f"{prefix}-{slug}-{code}/"
-        )
+        self.crawler = CambridgeSyllabusCrawler()
 
     # ── Gemini extraction ──────────────────────────────────────────────────────
 
@@ -195,3 +171,34 @@ RULES:
 
         logger.info(f"Saved syllabus CSV to: {csv_path}")
         return csv_path
+
+    # ── Full Automated Build ───────────────────────────────────────────────────
+
+    def build(
+        self,
+        subject: str,
+        code: str,
+        level: str,
+        pdf_path: Optional[Path] = None,
+        output_dir: Optional[Path] = None,
+    ) -> Tuple[Path, Path, List[SyllabusRow]]:
+        """
+        Runs the full automated syllabus extraction pipeline:
+        1. If pdf_path is None, automatically crawls Cambridge website to find
+           and download the official syllabus PDF with > 3 pages.
+        2. Sends PDF to Gemini to extract all learning objectives.
+        3. Saves resulting CSV to syllabi/ directory.
+        Returns (csv_path, downloaded_or_provided_pdf_path, rows).
+        """
+        if output_dir is None:
+            output_dir = Path(__file__).resolve().parent.parent.parent / "syllabi"
+
+        if pdf_path is None:
+            logger.info(f"Automatically finding syllabus for {subject} ({code}) on Cambridge website...")
+            resolved_pdf, _pages = self.crawler.fetch_syllabus_pdf(subject, code, level)
+        else:
+            resolved_pdf = Path(pdf_path)
+
+        rows = self.extract_from_pdf(resolved_pdf, subject, code, level)
+        csv_path = self.save_csv(rows, subject, code, output_dir)
+        return csv_path, resolved_pdf, rows

@@ -10,18 +10,24 @@ Usage
         --code 5054 \\
         --level o-level
 
-Flow
-----
-1. Constructs the official Cambridge subject page URL and opens it in the
-   default system browser so the user can find and download the syllabus PDF.
-2. Prompts the user to enter the path to the downloaded PDF.
-3. Sends the PDF to Gemini for structured content extraction.
-4. Saves the result as  syllabi/{SUBJECT}_{CODE}.csv  in the EdGenie format.
+    edgenie-syllabus list
+
+Automated Production Flow
+-------------------------
+1. Navigates directly to the official Cambridge International qualifications directory
+   (e.g., https://www.cambridgeinternational.org/programmes-and-qualifications/cambridge-upper-secondary/cambridge-o-level/subjects/).
+2. Locates the subject of interest (e.g. Physics 5054) and navigates to its page.
+3. Searches for the "Syllabuses" section, checks candidate PDFs in reverse order (bottom-up),
+   and inspects page counts:
+   - Skips PDFs with <= 3 pages (e.g., errata / update flyers).
+   - Once a PDF with > 3 pages is found (the complete syllabus document), downloads it.
+4. Sends the downloaded PDF to Gemini to extract all learning objectives into:
+   Unit, Topic, Subtopic
+5. Saves the final CSV into the syllabi/ directory (e.g. syllabi/PHYSICS_5054.csv).
 """
 
 import logging
 import os
-import webbrowser
 from pathlib import Path
 from typing import Optional
 
@@ -36,7 +42,10 @@ dotenv.load_dotenv()
 
 from pipeline.syllabus.builder import SyllabusBuilder
 
-app = typer.Typer(help="EdGenie Syllabus Builder — extract Cambridge syllabuses into structured CSV")
+app = typer.Typer(
+    help="EdGenie Syllabus Builder — extract official Cambridge syllabuses into structured CSV",
+    no_args_is_help=True,
+)
 console = Console()
 
 LEVEL_CHOICES = ["o-level", "a-level", "igcse"]
@@ -66,22 +75,20 @@ def build(
         None,
         "--output-dir",
         "-o",
-        help='Directory to save the CSV (default: syllabi/ in project root)',
+        help="Directory to save the CSV (default: syllabi/ in project root)",
     ),
     pdf_path: Optional[str] = typer.Option(
         None,
         "--pdf",
         "-p",
-        help="Path to an already-downloaded Cambridge syllabus PDF (skips browser step)",
+        help="Optional: Path to an existing syllabus PDF (skips automated web discovery)",
     ),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
     """
-    Build a structured CSV syllabus from an official Cambridge syllabus PDF.
-
-    Opens the Cambridge subject page in your browser so you can download
-    the PDF, then extracts its content using Gemini and saves a CSV that
-    is ready to pass to  edgenie-extractor --syllabus.
+    Automated syllabus extraction: crawls official Cambridge website,
+    downloads the latest complete syllabus (>3 pages), and uses Gemini
+    to extract a structured CSV into the syllabi/ directory.
     """
     setup_logging(log_level)
     logger = logging.getLogger(__name__)
@@ -97,15 +104,15 @@ def build(
 
     console.print(
         Panel.fit(
-            f"[bold cyan]EdGenie Syllabus Builder[/bold cyan]\n"
+            f"[bold cyan]EdGenie Automated Syllabus Extractor[/bold cyan]\n"
             f"Subject : [yellow]{subject}[/yellow]\n"
             f"Code    : [yellow]{code}[/yellow]\n"
             f"Level   : [yellow]{level_normalised}[/yellow]",
-            title="Stage 0 — Syllabus Extraction",
+            title="Stage 0 — Cambridge Syllabus Discovery & Extraction",
         )
     )
 
-    # ── Check API key ──────────────────────────────────────────────────────────
+    # Check API key
     if not os.getenv("GOOGLE_API_KEY"):
         console.print(
             "[bold red]Error:[/bold red] GOOGLE_API_KEY is not set. "
@@ -115,46 +122,30 @@ def build(
 
     builder = SyllabusBuilder()
 
-    # ── Step 1: resolve PDF path ───────────────────────────────────────────────
+    # Step 1: Discover & Download or Use Provided PDF
     if pdf_path:
         resolved_pdf = Path(pdf_path)
         if not resolved_pdf.exists():
-            console.print(
-                f"[bold red]Error:[/bold red] PDF file not found at: {pdf_path}"
-            )
+            console.print(f"[bold red]Error:[/bold red] PDF file not found at: {pdf_path}")
             raise typer.Exit(code=1)
-        console.print(f"\n[bold blue]Using provided PDF:[/bold blue] {resolved_pdf}")
+        console.print(f"\n[bold blue]Using provided local PDF:[/bold blue] {resolved_pdf}")
     else:
-        # Open Cambridge subject page so user can download the PDF
-        page_url = builder.cambridge_page_url(subject, code, level_normalised)
-
-        console.print(f"\n[bold blue]Step 1 — Download the syllabus PDF[/bold blue]")
-        console.print(
-            f"Opening the Cambridge subject page in your browser:\n"
-            f"[link={page_url}]{page_url}[/link]\n"
-        )
-        console.print(
-            "[dim]On that page, go to the [bold]Syllabus[/bold] tab and download the "
-            "latest syllabus PDF (e.g. '2026–2028 Syllabus').[/dim]\n"
-        )
-        webbrowser.open(page_url)
+        console.print(f"\n[bold blue]1. Crawling Cambridge website for official syllabus PDF...[/bold blue]")
+        with console.status("[bold green]Navigating Cambridge portal & inspecting candidate PDFs (>3 pages)..."):
+            try:
+                resolved_pdf, page_count = builder.crawler.fetch_syllabus_pdf(subject, code, level_normalised)
+            except Exception as e:
+                console.print(f"[bold red]Failed to discover syllabus PDF from Cambridge website:[/bold red] {e}")
+                raise typer.Exit(code=1)
 
         console.print(
-            "[bold yellow]Once downloaded, enter the full path to the PDF below.[/bold yellow]"
+            f"[green]✓ Downloaded official syllabus PDF:[/green] [cyan]{resolved_pdf.name}[/cyan] "
+            f"([bold]{page_count}[/bold] pages)"
         )
-        pdf_input = typer.prompt("Path to downloaded syllabus PDF").strip().strip("'\"")
-        resolved_pdf = Path(pdf_input).expanduser().resolve()
 
-        if not resolved_pdf.exists():
-            console.print(
-                f"[bold red]Error:[/bold red] File not found at: {resolved_pdf}\n"
-                "Please check the path and run the command again."
-            )
-            raise typer.Exit(code=1)
-
-    # ── Step 2: Extract with Gemini ────────────────────────────────────────────
-    console.print(f"\n[bold blue]Step 2 — Extracting syllabus content with Gemini...[/bold blue]")
-    with console.status("[bold green]Sending PDF to Gemini for extraction…"):
+    # Step 2: Extract structured content via Gemini
+    console.print(f"\n[bold blue]2. Extracting syllabus content with Gemini...[/bold blue]")
+    with console.status("[bold green]Sending PDF to Gemini for structured extraction…"):
         try:
             rows = builder.extract_from_pdf(resolved_pdf, subject, code, level_normalised)
         except Exception as e:
@@ -165,16 +156,13 @@ def build(
         console.print("[bold red]Error:[/bold red] Gemini returned no rows. The PDF may not be a valid syllabus.")
         raise typer.Exit(code=1)
 
-    console.print(f"Extracted [bold green]{len(rows)}[/bold green] learning objectives.")
+    console.print(f"[green]✓ Successfully extracted [bold]{len(rows)}[/bold] learning objectives.[/green]")
 
-    # ── Step 3: Save CSV ───────────────────────────────────────────────────────
-    console.print(f"\n[bold blue]Step 3 — Saving CSV...[/bold blue]")
-
-    # Determine output directory
+    # Step 3: Save CSV
+    console.print(f"\n[bold blue]3. Saving CSV to syllabi directory...[/bold blue]")
     if output_dir:
         out_dir = Path(output_dir)
     else:
-        # Default: syllabi/ in the project root (same as existing CSVs)
         out_dir = Path(__file__).resolve().parent.parent.parent / "syllabi"
 
     try:
@@ -183,7 +171,7 @@ def build(
         console.print(f"[bold red]Failed to save CSV:[/bold red] {e}")
         raise typer.Exit(code=1)
 
-    # ── Preview table ──────────────────────────────────────────────────────────
+    # Preview table
     table = Table(title=f"Syllabus Preview — first 15 rows of {csv_path.name}")
     table.add_column("Unit", style="cyan", no_wrap=False)
     table.add_column("Topic", style="yellow", no_wrap=False)
@@ -196,12 +184,44 @@ def build(
 
     console.print(table)
     console.print(
-        f"\n[bold green]✓ Syllabus CSV saved:[/bold green] [cyan]{csv_path}[/cyan]"
+        f"\n[bold green]✓ Complete! Syllabus CSV saved to:[/bold green] [cyan]{csv_path}[/cyan]"
     )
     console.print(
-        f"\n[dim]Use it with:[/dim]\n"
+        f"\n[dim]Ready for text-extraction and topic classification:[/dim]\n"
         f"  edgenie-extractor process --pdf <paper.pdf> --syllabus {csv_path}"
     )
+
+
+@app.command(name="list")
+def list_syllabi(
+    directory: Optional[str] = typer.Option(
+        None, "--dir", "-d", help="Syllabi directory (default: syllabi/ in project root)"
+    )
+):
+    """List all available structured syllabus CSV files."""
+    if directory:
+        s_dir = Path(directory)
+    else:
+        s_dir = Path(__file__).resolve().parent.parent.parent / "syllabi"
+
+    if not s_dir.exists():
+        console.print(f"[yellow]Syllabi directory does not exist at: {s_dir}[/yellow]")
+        return
+
+    csvs = sorted(s_dir.glob("*.csv"))
+    if not csvs:
+        console.print(f"[yellow]No syllabus CSV files found in: {s_dir}[/yellow]")
+        return
+
+    table = Table(title=f"Available Syllabuses ({len(csvs)} files in {s_dir.name}/)")
+    table.add_column("Filename", style="cyan")
+    table.add_column("Size", style="magenta")
+    table.add_column("Full Path", style="green")
+
+    for f in csvs:
+        table.add_row(f.name, f"{f.stat().st_size:,} bytes", str(f))
+
+    console.print(table)
 
 
 if __name__ == "__main__":
