@@ -1,27 +1,30 @@
 """
 pipeline/extractor/classifier_agent.py
 
-Duplicate Stage 2 — Classification-only Gemini pass.
+Duplicate Stage 2 — Classification-only Gemini pass with OpenRouter fallback.
 
-Takes pre-extracted question records (schema skeletons from PyMuPDFExtractor)
-and sends ONLY the JSON text + syllabus to Gemini to fill in:
-  Unit, Topic, Topic_name, Sub_topic, Difficulty_score,
-  Difficulty_label, Command_words
-
-No PDF bytes are sent.  The same classification/difficulty instructions
-from agentic_parser.py are reused verbatim.
+Takes the pre-extracted JSON records (schema skeletons produced by text extraction)
+along with the official Cambridge syllabus, and calls the LLM to fill in:
+  - Unit
+  - Topic
+  - Topic_name
+  - Sub_topic
+  - Difficulty_score
+  - Difficulty_label
+  - Command_words
 """
 
 import json
 import logging
 import os
-from typing import Any, Dict, List
-
-from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
 
 from google import genai
 from google.genai import types
+from openai import OpenAI
+from pydantic import BaseModel
 
+from pipeline.config import settings
 from pipeline.extractor.paper_type_detector import PaperCategory
 
 logger = logging.getLogger(__name__)
@@ -49,13 +52,18 @@ class ClassificationContainer(BaseModel):
 
 class ClassifierAgent:
     """
-    Sends pre-extracted question JSON + syllabus to Gemini for classification
-    and difficulty labelling.  Returns a dict keyed by question_number.
+    Takes pre-extracted question JSON records from text extraction and the syllabus,
+    then uses Gemini (with OpenRouter fallback) to fill in topic classification,
+    difficulty level, and command words for every question.
     """
 
-    def __init__(self):
+    def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
+        self.provider = provider or settings.llm_provider
+        self.model_name = model_name or settings.llm_model
         self.api_key = os.getenv("GOOGLE_API_KEY")
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        if self.provider == "google" and not self.api_key and os.getenv("OPENROUTER_API_KEY"):
+            self.provider = "openrouter"
 
     def _build_prompt(
         self,
@@ -66,18 +74,23 @@ class ClassifierAgent:
     ) -> str:
         session = str(meta_context.get("session", "jun")).capitalize()
         year = meta_context.get("year", 2023)
-        variant = meta_context.get("variant", "11")
-        subject_code = meta_context.get("subject_code", "unknown")
+        variant = str(meta_context.get("variant", "11"))
+        subject_code = str(meta_context.get("subject_code", "unknown"))
 
         is_mcq = category == PaperCategory.MCQ_QP
-        paper_type = "Multiple-Choice" if is_mcq else "Essay/Structured"
+        paper_type = "Multiple-Choice (MCQ)" if is_mcq else "Essay / Structured Theory"
 
+        # Provide clean JSON of the extracted questions
         records_json = json.dumps(records, indent=2, ensure_ascii=False)
 
-        prompt = f"""You are a senior educational examiner for O/A-Levels.
+        prompt = f"""You are a senior educational examiner for O/A-Levels and a curriculum classification specialist.
 
-Below are pre-extracted question records from a Cambridge {paper_type} past paper.
-Your ONLY task is to classify each question by topic and difficulty — do NOT re-extract or modify the question text, options, or parts.
+You are provided with:
+1. A JSON dataset of questions pre-extracted from a Cambridge {paper_type} past paper.
+2. The official Cambridge syllabus for this subject.
+
+YOUR TASK:
+Take the provided question records and the syllabus, analyze each question's text and content, and fill in the topic classification, difficulty analysis, and command words for every single question.
 
 METADATA CONTEXT:
 - Year: {year}
@@ -85,19 +98,31 @@ METADATA CONTEXT:
 - Variant: {variant}
 - Subject Code: {subject_code}
 
-SYLLABUS CONTEXT:
+OFFICIAL SYLLABUS:
 {syllabus_text}
 
-PRE-EXTRACTED QUESTION RECORDS (JSON):
+EXTRACTED QUESTION JSON:
 {records_json}
 
-CLASSIFICATION INSTRUCTIONS:
-1. For each record, look up the question_number (from the QuestionNumber field).
-2. Map to the correct Unit number, Topic number, Topic_name, and Sub_topic(s) using the SYLLABUS exactly.
-3. Estimate Difficulty_score (1–10) and Difficulty_label: 'easy' (1–3), 'medium' (4–6), 'hard' (7–8), 'expert' (9–10).
-4. List Command_words found in the question text (e.g. ['explain', 'calculate', 'describe']).
-5. Return ONE classification entry per question using the exact question_number string from the record.
-6. Do NOT include any answer options, question text, or mark allocations in your response — only the classification fields.
+INSTRUCTIONS FOR CLASSIFICATION & DIFFICULTY:
+1. QUESTION MAPPING:
+   For every question in the extracted JSON, find its `QuestionNumber` (e.g. "{session}/{variant}/{year}/Q1") and set it as `question_number`.
+
+2. TOPIC CLASSIFICATION (using the provided syllabus):
+   - `Unit`: The Unit number from the syllabus (e.g. "1", "2").
+   - `Topic`: The Topic number from the syllabus (e.g. "1.1", "2.3").
+   - `Topic_name`: The exact Topic name from the syllabus (e.g. "Physical Quantities and Units").
+   - `Sub_topic`: A list of the specific sub-topic learning objectives tested by this question (e.g. ["Scalars and vectors", "Speed and velocity"]).
+
+3. DIFFICULTY ANALYSIS:
+   - `Difficulty_score`: Integer from 1 to 10 based on cognitive complexity, multi-step calculations, and depth.
+   - `Difficulty_label`: One of 'easy' (1-3), 'medium' (4-6), 'hard' (7-8), 'expert' (9-10).
+   - `Command_words`: List of command words identified in the question (e.g. ["calculate", "explain", "state", "describe", "determine"]).
+
+4. OUTPUT CONSTRAINTS:
+   - Output exactly ONE classification entry per question in the `classifications` array.
+   - Do NOT omit any questions. If there are 40 questions in the input, return 40 classifications.
+   - Output ONLY the requested schema fields (do not re-output question text or options).
 """
         return prompt
 
@@ -109,44 +134,96 @@ CLASSIFICATION INSTRUCTIONS:
         meta_context: Dict[str, Any],
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Send extracted records + syllabus to Gemini for classification.
+        Send extracted records + syllabus to Gemini (with OpenRouter fallback) for classification.
         Returns a dict: {question_number: {Unit, Topic, Topic_name, Sub_topic,
                                             Difficulty_score, Difficulty_label, Command_words}}
-        Raises RuntimeError if no API key or Gemini call fails.
         """
-        if not self.api_key:
-            raise RuntimeError("GOOGLE_API_KEY is not set; cannot run classification pass.")
-
         # MS papers have no classification fields — skip
         if category in (PaperCategory.MCQ_MS, PaperCategory.ESSAY_MS):
             return {}
 
         prompt = self._build_prompt(records, syllabus_text, category, meta_context)
+
+        # Primary attempt: Google Gemini
+        if self.provider == "google" and self.api_key:
+            try:
+                return self._classify_with_gemini(prompt)
+            except Exception as gemini_err:
+                logger.warning(
+                    f"Gemini classification pass failed ({gemini_err}). "
+                    "Attempting fallback to OpenRouter..."
+                )
+                if os.getenv("OPENROUTER_API_KEY"):
+                    return self._classify_with_openrouter(prompt)
+                else:
+                    logger.error("OPENROUTER_API_KEY not set; cannot fallback to OpenRouter.")
+                    raise gemini_err
+
+        elif self.provider == "openrouter" or os.getenv("OPENROUTER_API_KEY"):
+            return self._classify_with_openrouter(prompt)
+        else:
+            raise RuntimeError("No valid API key (GOOGLE_API_KEY or OPENROUTER_API_KEY) found for classification pass.")
+
+    def _classify_with_gemini(self, prompt: str) -> Dict[str, Dict[str, Any]]:
+        """Calls Gemini with structured output for question classification."""
         client = genai.Client(api_key=self.api_key)
+        response = client.models.generate_content(
+            model=self.model_name,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ClassificationContainer,
+                temperature=0.1,
+                max_output_tokens=65535,
+            ),
+        )
+
+        raw = response.text
+        if not raw or not raw.strip():
+            raise ValueError("Gemini returned an empty classification response.")
+
+        data = json.loads(raw)
+        classifications = data.get("classifications", [])
+        return {c["question_number"]: c for c in classifications}
+
+    def _classify_with_openrouter(self, prompt: str) -> Dict[str, Dict[str, Any]]:
+        """Fallback to OpenRouter with exact same prompt and schema."""
+        logger.info("Running classification pass via OpenRouter fallback...")
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable not set.")
+
+        model = os.getenv("OPENROUTER_MODEL", getattr(settings, "openrouter_model", "google/gemini-2.5-flash"))
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
 
         try:
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=ClassificationContainer,
-                    temperature=0.1,
-                    max_output_tokens=8192,
-                ),
+            completion = client.beta.chat.completions.parse(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format=ClassificationContainer,
+                temperature=0.1,
             )
-
-            raw = response.text
-            if not raw or not raw.strip():
-                raise ValueError("Gemini returned an empty classification response.")
-
-            data = json.loads(raw)
-            classifications = data.get("classifications", [])
-            return {c["question_number"]: c for c in classifications}
+            parsed_response = completion.choices[0].message.parsed
+            classifications = parsed_response.classifications if hasattr(parsed_response, "classifications") else []
+            return {c.question_number: c.model_dump() for c in classifications}
 
         except Exception as e:
-            logger.error(f"ClassifierAgent Gemini call failed: {e}")
-            raise
+            logger.warning(f"OpenRouter structured parse failed ({e}). Retrying with json_object response_format...")
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.1,
+            )
+            raw_text = response.choices[0].message.content
+            if not raw_text or not raw_text.strip():
+                raise ValueError("OpenRouter returned an empty classification response.")
+            data = json.loads(raw_text)
+            classifications = data.get("classifications", [])
+            return {c["question_number"]: c for c in classifications}
 
     def merge(
         self,
