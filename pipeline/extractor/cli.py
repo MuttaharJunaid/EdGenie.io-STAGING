@@ -55,8 +55,8 @@ def process(
     category = PaperTypeDetector.detect(pdf)
     console.print(f"Detected Category: [bold yellow]{category.name}[/bold yellow] ([cyan]{category.value}[/cyan])")
 
-    if any(sfx in pdf.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt."]):
-        console.print(f"[yellow]Skipping '{pdf.name}' — Examiner Reports (_er_) and Grade Thresholds (_gt_) are excluded from text extraction.[/yellow]")
+    if any(sfx in pdf.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt.", "_ir_", "_ir.", "_ci_", "_ci."]):
+        console.print(f"[yellow]Skipping '{pdf.name}' — Examiner Reports (_er_), Grade Thresholds (_gt_), Confidential Instructions (_ir_/_ci_) are excluded from text extraction.[/yellow]")
         return
 
     if category == PaperCategory.OTHER:
@@ -253,10 +253,10 @@ def process_dir(
     all_pdfs = list(dir_path.glob("**/*.pdf"))
     pdf_files = [
         p for p in all_pdfs
-        if not any(sfx in p.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt."])
+        if not any(sfx in p.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt.", "_ir_", "_ir.", "_ci_", "_ci."])
     ]
     if not pdf_files:
-        console.print(f"[yellow]No valid Question Paper / Mark Scheme PDFs found in '{directory_path}' (excluded _er_ and _gt_ files).[/yellow]")
+        console.print(f"[yellow]No valid Question Paper / Mark Scheme PDFs found in '{directory_path}' (excluded _er_, _gt_, _ir_, _ci_ files).[/yellow]")
         raise typer.Exit(code=0)
 
     # Sort sequentially starting from the first stored PDF

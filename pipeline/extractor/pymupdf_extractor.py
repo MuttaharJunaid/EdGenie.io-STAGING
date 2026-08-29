@@ -3,29 +3,22 @@ pipeline/extractor/pymupdf_extractor.py
 
 Duplicate Stage 2 — layout-based text extractor.
 
-Uses the same PyMuPDF primitives as Stage 3 (CambridgeVisualExtractor) to
-pull question prose directly from the PDF without any LLM call.  The
-output is a schema-skeleton list — all classification fields (Unit, Topic,
-Difficulty, …) are left empty; a subsequent ClassifierAgent pass fills them.
+Uses PyMuPDF layout analysis to pull question prose and mark schemes directly
+from PDFs without any LLM calls. Output is a schema-skeleton list — classification
+fields (Unit, Topic, Difficulty, …) are populated in a subsequent ClassifierAgent pass.
 
 Supported paper categories
 --------------------------
-  MCQ_QP   — stem + A/B/C/D options per question
-  MCQ_MS   — answer-key letter per question (layout scan)
-  ESSAY_QP — stem + (a)/(b)/… sub-parts + [N] marks
-  ESSAY_MS — raw answer text + sub-part answers per question
-
-What is excluded (mirrors cambridge_text_extractor.py):
-  • Header/footer boilerplate, paper codes, "Turn over", "BLANK PAGE" pages
-  • "For Examiner's Use" sidebar (x0 > CONTENT_MAX_X)
-  • Text inside figure caption bands (same logic as Stage 3)
-  • Fig. N.M caption lines themselves
+  MCQ_QP   — Question stem + Options {A, B, C, D} per question
+  MCQ_MS   — Answer-key letter (A/B/C/D) per question (handles single-line & multi-column tables)
+  ESSAY_QP — Question stem + sub-parts (a)/(b)/... + [N] marks
+  ESSAY_MS — Answer text + sub-part answers (handles modern table mark schemes & legacy layouts)
 """
 
 import re
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import pymupdf as fitz
 
@@ -60,8 +53,13 @@ BOILERPLATE_PATTERNS = [
 DOT_LEADER = re.compile(r"\.{4,}")
 MARKS_PATTERN = re.compile(r"\[(\d+)\]")
 PART_LABEL = re.compile(r"^\s*\(([a-z]|i{1,3}v?|vi{0,3}|ix|x{0,3})\)\s*", re.IGNORECASE)
-OPTION_INLINE = re.compile(r"^([ABCD])\s+\S")   # "A Some text"
-OPTION_SOLO   = re.compile(r"^([ABCD])$")         # bare "A"
+OPTION_INLINE = re.compile(r"^([ABCD])\s+(.*)$")
+OPTION_SOLO = re.compile(r"^([ABCD])$")
+
+# Mark scheme specific regexes
+MODERN_Q_STRICT = re.compile(r"^\s*([1-9]\d?)\s*\(([a-g])\)(?:\s*\(([a-z]|i{1,3}v?|vi{0,3}|ix|x{0,3})\))?\s*$", re.IGNORECASE)
+MODERN_Q_INLINE = re.compile(r"^\s*([1-9]\d?)\s*\(([a-g])\)(?:\s*\(([a-z]|i{1,3}v?|vi{0,3}|ix|x{0,3})\))?\s+(.*)$", re.IGNORECASE)
+MARK_NOTATION = re.compile(r"\b[BCAM]\d\b", re.IGNORECASE)
 
 
 class PyMuPDFExtractor:
@@ -221,75 +219,178 @@ class PyMuPDFExtractor:
                 "Parts": parts,
             })
 
+        doc.close()
         return results
 
     # ── Essay MS ──────────────────────────────────────────────────────────
 
+    def _detect_ms_type(self, doc: fitz.Document) -> str:
+        """Returns 'modern' or 'legacy' based on occurrence of modern question table structure."""
+        modern_count = 0
+        for pno in range(len(doc)):
+            page = doc[pno]
+            blocks = page.get_text("blocks")
+            for b in blocks:
+                for line in b[4].split("\n"):
+                    t = line.strip()
+                    if MODERN_Q_STRICT.match(t) or MODERN_Q_INLINE.match(t):
+                        modern_count += 1
+        return "modern" if modern_count >= 3 else "legacy"
+
     def _extract_essay_ms(self, pdf_path: Path, meta: Dict[str, Any]) -> List[Dict[str, Any]]:
         doc = fitz.open(str(pdf_path))
-        page_data = self._build_page_data(doc, mcq=False)
+        ms_type = self._detect_ms_type(doc)
 
-        raw: Dict[int, List[str]] = {}
-        order: List[int] = []
-        current_q = None
+        if ms_type == "modern":
+            # Modern table format with question labels like "1(a)", "1(b)(i)"
+            questions = {}
+            order = []
+            current_q = None
+            current_part_label = None
 
-        for pd in page_data:
-            if pd is None:
-                continue
-            for ln in pd["lines"]:
-                if self._is_boilerplate(ln):
-                    continue
-                anchor_here = next(
-                    (qn for qn, y0 in pd["anchors"] if abs(y0 - ln.bbox.y0) < 0.6), None
-                )
-                if anchor_here is not None:
-                    current_q = anchor_here
-                    if ln.text.strip().isdigit():
-                        continue
-                if current_q is None:
-                    continue
-                if DEFAULT_CAPTION_PATTERN.match(ln.text.strip()):
-                    continue
-                text = DOT_LEADER.sub("", ln.text).strip()
-                if text:
-                    raw.setdefault(current_q, []).append(text)
-                    if current_q not in order:
-                        order.append(current_q)
+            for pno in range(len(doc)):
+                page = doc[pno]
+                blocks = page.get_text("blocks")
+                for b in blocks:
+                    lines = [l.strip() for l in b[4].split("\n") if l.strip()]
+                    for line in lines:
+                        if any(h in line for h in [
+                            "Cambridge O Level", "Cambridge IGCSE", "Cambridge International",
+                            "PUBLISHED", "May/June", "October/November", "Question", "Answer",
+                            "Marks", "Page "
+                        ]) and len(line) < 45:
+                            continue
 
-        results = []
-        for qnum in order:
-            answer_lines: List[str] = []
-            parts: List[Dict] = []
-            current_part: Dict = None
+                        m_strict = MODERN_Q_STRICT.match(line)
+                        m_inline = MODERN_Q_INLINE.match(line)
 
-            for line in raw[qnum]:
-                part_m = PART_LABEL.match(line)
-                if part_m:
-                    if current_part:
-                        parts.append(current_part)
-                    part_ans = PART_LABEL.sub("", line).strip()
-                    current_part = {
-                        "part_label": f"({part_m.group(1)})",
-                        "part_answer": part_ans,
+                        if m_strict:
+                            qnum = int(m_strict.group(1))
+                            sub1 = m_strict.group(2)
+                            sub2 = m_strict.group(3)
+                            part_label = f"({sub1})" if not sub2 else f"({sub1})({sub2})"
+                            current_q = qnum
+                            current_part_label = part_label
+                            if current_q not in order:
+                                order.append(current_q)
+                            questions.setdefault(current_q, {"answer_text": [], "parts": {}})
+                        elif m_inline:
+                            qnum = int(m_inline.group(1))
+                            sub1 = m_inline.group(2)
+                            sub2 = m_inline.group(3)
+                            part_label = f"({sub1})" if not sub2 else f"({sub1})({sub2})"
+                            rem = m_inline.group(4).strip()
+                            rem = MARK_NOTATION.sub("", rem).strip()
+                            current_q = qnum
+                            current_part_label = part_label
+                            if current_q not in order:
+                                order.append(current_q)
+                            questions.setdefault(current_q, {"answer_text": [], "parts": {}})
+                            if rem:
+                                pdict = questions[current_q]["parts"]
+                                pdict[current_part_label] = (pdict.get(current_part_label, "") + " " + rem).strip()
+                        elif current_q is not None and current_part_label is not None:
+                            clean_line = MARK_NOTATION.sub("", line).strip()
+                            if clean_line and clean_line not in ["B1", "C1", "A1", "M1", "B2", "A2"]:
+                                pdict = questions[current_q]["parts"]
+                                pdict[current_part_label] = (pdict.get(current_part_label, "") + " " + clean_line).strip()
+
+            results = []
+            for qnum in order:
+                q_data = questions[qnum]
+                parts_list = []
+                for plabel, ptext in q_data["parts"].items():
+                    parts_list.append({
+                        "part_label": plabel,
+                        "part_answer": ptext,
                         "image": None,
-                    }
-                else:
-                    if current_part is not None:
-                        current_part["part_answer"] = (current_part["part_answer"] + " " + line).strip()
+                    })
+                results.append({
+                    "AnswerNumber": self._fmt_qnum(qnum, meta),
+                    "Answer_text": " ".join(q_data["answer_text"]),
+                    "image": None,
+                    "Parts": parts_list,
+                })
+            doc.close()
+            return results
+
+        else:
+            # Legacy margin layout (e.g. 2010-2015 mark schemes)
+            questions = {}
+            current_q = None
+
+            for pno in range(len(doc)):
+                page = doc[pno]
+                lines = self._cve.get_lines(page)
+                if any(ln.text.strip().upper() == "BLANK PAGE" for ln in lines):
+                    continue
+                non_bp = [ln for ln in lines if not self._is_boilerplate(ln)]
+                if not non_bp:
+                    continue
+
+                rows = {}
+                for ln in non_bp:
+                    y_key = round(ln.bbox.y0 / 3.0) * 3.0
+                    rows.setdefault(y_key, []).append(ln)
+
+                for y in sorted(rows.keys()):
+                    row_lines = sorted(rows[y], key=lambda l: l.bbox.x0)
+                    q_anchor = None
+                    content_lines = []
+                    for ln in row_lines:
+                        t = ln.text.strip()
+                        if ln.bbox.x0 < 65 and re.match(r"^\d{1,2}$", t):
+                            q_val = int(t)
+                            if 1 <= q_val <= 30:
+                                q_anchor = q_val
+                        elif not re.match(r"^\s*[BCAM]\d\s*$", t, re.IGNORECASE):
+                            content_lines.append(ln)
+
+                    if q_anchor is not None:
+                        current_q = q_anchor
+
+                    if current_q is not None:
+                        row_text = " ".join(ln.text.strip() for ln in content_lines).strip()
+                        row_text = DOT_LEADER.sub("", row_text).strip()
+                        if row_text and row_text not in ["Section A", "Section B"]:
+                            questions.setdefault(current_q, []).append(row_text)
+
+            results = []
+            for qnum in sorted(questions.keys()):
+                raw_lines = questions[qnum]
+                answer_lines = []
+                parts = []
+                current_part = None
+
+                for line in raw_lines:
+                    part_m = PART_LABEL.match(line)
+                    if part_m:
+                        if current_part:
+                            parts.append(current_part)
+                        part_ans = PART_LABEL.sub("", line).strip()
+                        current_part = {
+                            "part_label": f"({part_m.group(1)})",
+                            "part_answer": part_ans,
+                            "image": None,
+                        }
                     else:
-                        answer_lines.append(line)
+                        if current_part is not None:
+                            current_part["part_answer"] = (current_part["part_answer"] + " " + line).strip()
+                        else:
+                            answer_lines.append(line)
 
-            if current_part:
-                parts.append(current_part)
+                if current_part:
+                    parts.append(current_part)
 
-            results.append({
-                "AnswerNumber": self._fmt_qnum(qnum, meta),
-                "Answer_text": " ".join(answer_lines),
-                "image": None,
-                "Parts": parts,
-            })
+                results.append({
+                    "AnswerNumber": self._fmt_qnum(qnum, meta),
+                    "Answer_text": " ".join(answer_lines),
+                    "image": None,
+                    "Parts": parts,
+                })
 
-        return results
+            doc.close()
+            return results
 
     # ── MCQ QP ────────────────────────────────────────────────────────────
 
@@ -338,11 +439,15 @@ class PyMuPDFExtractor:
                 # Strip leading question-number prefix (e.g. "5 Two men..." → "Two men...")
                 t_body = re.sub(r"^\d{1,2}\s+", "", t) if MCQ_Q_PATTERN.match(t) else t
 
-                opt_m = OPTION_INLINE.match(t_body) or OPTION_SOLO.match(t_body)
+                opt_m = OPTION_INLINE.match(t_body)
+                solo_m = OPTION_SOLO.match(t_body)
+
                 if opt_m and opt_m.group(1) in MCQ_ANSWER_LABELS:
                     current_opt = opt_m.group(1)
-                    opt_text = OPTION_INLINE.sub("", t_body).strip() or OPTION_SOLO.sub("", t_body).strip()
-                    options[current_opt] = opt_text
+                    options[current_opt] = opt_m.group(2).strip()
+                elif solo_m and solo_m.group(1) in MCQ_ANSWER_LABELS:
+                    current_opt = solo_m.group(1)
+                    options[current_opt] = ""
                 elif current_opt is not None:
                     options[current_opt] = (options[current_opt] + " " + t_body).strip()
                 else:
@@ -363,33 +468,67 @@ class PyMuPDFExtractor:
                 "image": None,
             })
 
+        doc.close()
         return results
 
     # ── MCQ MS ────────────────────────────────────────────────────────────
 
     def _extract_mcq_ms(self, pdf_path: Path, meta: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Scan for 'N  X' answer-key lines (digit + single letter A-D)."""
+        """
+        Extracts MCQ answer key letters (A-D) per question.
+        Supports:
+          1. Direct lines ("1 C", "2 D")
+          2. Multi-column tables where Question Number and Key are separate columns
+        """
         doc = fitz.open(str(pdf_path))
         answer_pattern = re.compile(r"^\s*(\d{1,2})\s+([ABCD])\s*$")
-        seen: set = set()
-        results: List[Dict] = []
+        answers: Dict[int, str] = {}
 
         for pno in range(len(doc)):
             page = doc[pno]
             lines = self._cve.get_lines(page)
-            for ln in lines:
-                if self._is_boilerplate(ln):
-                    continue
+            non_bp = [ln for ln in lines if not self._is_boilerplate(ln)]
+
+            # 1. Direct line matches
+            for ln in non_bp:
                 m = answer_pattern.match(ln.text.strip())
                 if m:
                     qnum = int(m.group(1))
-                    if qnum not in seen:
-                        seen.add(qnum)
-                        results.append({
-                            "AnswerNumber": self._fmt_qnum(qnum, meta),
-                            "Answer": m.group(2),
-                            "image": None,
-                        })
+                    if 1 <= qnum <= 50:
+                        answers[qnum] = m.group(2)
 
-        results.sort(key=lambda r: int(r["AnswerNumber"].split("/Q")[-1]))
+            # 2. Multi-column table layout
+            num_candidates = []
+            key_candidates = []
+            for ln in non_bp:
+                t = ln.text.strip()
+                if re.match(r"^\d{1,2}$", t):
+                    q = int(t)
+                    if 1 <= q <= 50:
+                        num_candidates.append((q, ln.bbox))
+                elif re.match(r"^[ABCD]$", t):
+                    key_candidates.append((t, ln.bbox))
+
+            for q, n_bbox in num_candidates:
+                if q in answers:
+                    continue
+                matches = []
+                for k, k_bbox in key_candidates:
+                    y_diff = abs(k_bbox.y0 - n_bbox.y0)
+                    x_diff = k_bbox.x0 - n_bbox.x0
+                    if y_diff <= 10 and 0 < x_diff < 160:
+                        matches.append((y_diff, x_diff, k))
+                if matches:
+                    matches.sort(key=lambda m: (m[0], m[1]))
+                    answers[q] = matches[0][2]
+
+        results = []
+        for qnum in sorted(answers.keys()):
+            results.append({
+                "AnswerNumber": self._fmt_qnum(qnum, meta),
+                "Answer": answers[qnum],
+                "image": None,
+            })
+
+        doc.close()
         return results

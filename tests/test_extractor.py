@@ -154,18 +154,20 @@ def test_process_dir_sorting_and_er_gt_exclusion(tmp_path):
     (tmp_path / "5054_s23_qp_11.pdf").write_bytes(b"%PDF-1.4 11")
     (tmp_path / "5054_s23_er_11.pdf").write_bytes(b"%PDF-1.4 er")
     (tmp_path / "5054_s23_gt_11.pdf").write_bytes(b"%PDF-1.4 gt")
+    (tmp_path / "5054_s23_ir_31.pdf").write_bytes(b"%PDF-1.4 ir")
 
     all_pdfs = list(tmp_path.glob("**/*.pdf"))
     pdf_files = [
         p for p in all_pdfs
-        if not any(sfx in p.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt."])
+        if not any(sfx in p.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt.", "_ir_", "_ir.", "_ci_", "_ci."])
     ]
     pdf_files.sort(key=lambda p: (str(p.parent).lower(), p.name.lower()))
 
-    # Verify _er and _gt are excluded
+    # Verify _er, _gt, _ir are excluded
     filenames = [p.name for p in pdf_files]
     assert "5054_s23_er_11.pdf" not in filenames
     assert "5054_s23_gt_11.pdf" not in filenames
+    assert "5054_s23_ir_31.pdf" not in filenames
 
     # Verify natural order sorting (qp_11 comes before qp_12)
     assert filenames == ["5054_s23_qp_11.pdf", "5054_s23_qp_12.pdf"]
@@ -243,3 +245,44 @@ def test_pymupdf_extractor_fmt_qnum():
     ext = PyMuPDFExtractor()
     result = ext._fmt_qnum(3, {"session": "nov", "variant": "41", "year": 2018})
     assert result == "Nov/41/2018/Q3"
+
+
+def test_pymupdf_extractor_real_mcq_ms():
+    """Extract real MCQ MS PDF without errors."""
+    from pathlib import Path
+    from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+    from pipeline.extractor.paper_type_detector import PaperCategory
+
+    pdf_path = Path("pipeline/storage/5054/2010/nov/5054_w10_ms_11.pdf")
+    if not pdf_path.exists():
+        pytest.skip("Test storage file not present")
+
+    ext = PyMuPDFExtractor()
+    meta = {"session": "nov", "variant": "11", "year": 2010}
+    results = ext.extract(pdf_path, PaperCategory.MCQ_MS, meta)
+
+    assert len(results) == 40
+    assert results[0]["AnswerNumber"] == "Nov/11/2010/Q1"
+    assert results[0]["Answer"] in ["A", "B", "C", "D"]
+    assert results[39]["AnswerNumber"] == "Nov/11/2010/Q40"
+
+
+def test_pymupdf_extractor_real_essay_ms():
+    """Extract real Essay MS PDF without errors."""
+    from pathlib import Path
+    from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+    from pipeline.extractor.paper_type_detector import PaperCategory
+
+    pdf_path = Path("pipeline/storage/5054/2010/nov/5054_w10_ms_21.pdf")
+    if not pdf_path.exists():
+        pytest.skip("Test storage file not present")
+
+    ext = PyMuPDFExtractor()
+    meta = {"session": "nov", "variant": "21", "year": 2010}
+    results = ext.extract(pdf_path, PaperCategory.ESSAY_MS, meta)
+
+    assert len(results) >= 8
+    assert results[0]["AnswerNumber"] == "Nov/21/2010/Q1"
+    assert "Parts" in results[0]
+    assert len(results[0]["Parts"]) > 0
+
