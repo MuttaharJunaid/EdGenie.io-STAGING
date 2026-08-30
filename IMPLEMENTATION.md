@@ -1,8 +1,8 @@
 # EdGenie — Implementation Plan & Architecture Specification
 
-> **Version**: 2.1.0  
-> **Last Updated**: 2026-08-26  
-> **Status**: Active / Production Architecture (MongoDB + Firebase Storage Asset CDN + Stages 1-4 Implemented)
+> **Version**: 2.2.0  
+> **Last Updated**: 2026-08-30  
+> **Status**: Active / Production Architecture (MongoDB + Firebase Storage Asset CDN + Hybrid Layout/LLM Text Extraction)
 
 ---
 
@@ -160,7 +160,81 @@ Stage 1 is a robust Python scraper that downloads past paper PDFs (Question Pape
 
 ## 5. Stage 2 — Text Extraction & Question Parser
 
-Stage 2 parses downloaded PDF documents, detects paper categories, extracts structured questions with sub-parts and marks, maps answer keys (for MCQs), and classifies questions against syllabus topics and difficulty levels.
+Stage 2 parses downloaded PDF documents, detects paper categories, extracts structured questions with sub-parts and marks, maps answer keys, links visual figures, and classifies questions against syllabus topics and difficulty levels.
+
+### 5.1 Architecture: Two-Step Layout Extraction & LLM Classification
+
+Stage 2 uses a hybrid pipeline designed to minimize LLM token costs, ensure deterministic layout parsing, and provide deep syllabus mapping:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Stage 2 Text Extraction                           │
+│                                                                             │
+│  ┌───────────────────────────┐         ┌─────────────────────────────────┐  │
+│  │   1. Paper Type Detection │         │  2. Syllabus Resolution         │  │
+│  │  (MCQ_QP, MCQ_MS, etc.)   │         │ (Auto-locates in syllabi/ dir)  │  │
+│  └─────────────┬─────────────┘         └────────────────┬────────────────┘  │
+│                │                                        │                   │
+│                ▼                                        │                   │
+│  ┌───────────────────────────┐                          │                   │
+│  │ 3. PyMuPDF Layout Extract │                          │                   │
+│  │  (Zero LLM Token Cost)    │                          │                   │
+│  └─────────────┬─────────────┘                          │                   │
+│                │                                        │                   │
+│                ▼                                        │                   │
+│  ┌───────────────────────────┐                          │                   │
+│  │ 4. Link Visuals Manifest  │                          │                   │
+│  │  (from Stage 3 manifest)  │                          │                   │
+│  └─────────────┬─────────────┘                          │                   │
+│                │                                        │                   │
+│                ▼                                        │                   │
+│  ┌───────────────────────────┐                          │                   │
+│  │ 5. Save Skeleton JSON     │                          │                   │
+│  │    (<stem>.json)          │                          │                   │
+│  └─────────────┬─────────────┘                          │                   │
+│                │                                        │                   │
+│                ▼                                        ▼                   │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 6. Gemini / OpenRouter Classification Pass (ClassifierAgent)          │  │
+│  │    Input: Question JSON + Syllabus CSV text                           │  │
+│  │    Output: Unit, Topic, Sub_topic, Difficulty, Command_words          │  │
+│  └───────────────────────────────────┬───────────────────────────────────┘  │
+│                                      │                                      │
+│                                      ▼                                      │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 7. Merge Classifications & Overwrite Final JSON (<stem>.json)         │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.2 Step 1: Layout-Based Text Extraction (`PyMuPDFExtractor`)
+- **Zero LLM Token Usage**: Extracts full question text, options, sub-parts, and marks using PyMuPDF bounding-box geometry and line analysis.
+- **Boilerplate Stripping**: Removes header/footer furniture, UCLES copyright stamps, paper codes, "[Turn over" tags, and "BLANK PAGE" blocks.
+- **Category Handlers**:
+  - **`MCQ_QP`**: Extracts question stems and options `A, B, C, D` with clean labels.
+  - **`MCQ_MS`**: Multi-column table reader pairing question numbers with their corresponding answer key letters.
+  - **`ESSAY_QP`**: Extracts main question stems, sub-parts `(a)/(b)/(i)/(ii)`, and marks `[N]`.
+  - **`ESSAY_MS`**: Dual layout detection supporting modern table mark schemes (e.g. `1(a)`) and legacy margin mark schemes.
+- **Immediate Disk Save**: Writes the extracted skeleton to disk as `<stem>.json` immediately before calling any LLM.
+
+### 5.3 Step 2: Topic Classification & Difficulty Analysis (`ClassifierAgent`)
+- **Text-Only LLM Pass**: Passes only the pre-extracted question JSON and official syllabus text to Gemini (with automatic OpenRouter fallback).
+- **Enriched Fields**:
+  - `Unit`: Syllabus unit number (e.g. `"1"`).
+  - `Topic`: Syllabus topic number (e.g. `"1.2"`).
+  - `Topic_name`: Official topic title from syllabus.
+  - `Sub_topic`: List of specific learning objectives tested.
+  - `Difficulty_score`: Integer from 1 to 10.
+  - `Difficulty_label`: `'easy'`, `'medium'`, `'hard'`, or `'expert'`.
+  - `Command_words`: List of identified command words (e.g. `["calculate", "explain"]`).
+- **Targeted Update**: Only the classification and difficulty fields are merged back into `<stem>.json`.
+
+### 5.4 Syllabus Auto-Resolution (`SyllabusLoader.resolve_syllabus_path`)
+- Automatically resolves syllabus paths whether provided as `syllabi/PHYSICS_5054.csv`, `pipeline/syllabi/...`, filename only, or auto-discovered by subject code from the `syllabi/` directory.
+
+### 5.5 File Exclusions & Natural Sorting
+- Automatically excludes non-question/non-mark scheme PDFs: `_er_` (Examiner Reports), `_gt_` (Grade Thresholds), `_ir_` and `_ci_` (Confidential Instructions).
+- `process-dir` processes PDF papers sequentially starting from the first stored file.
 
 ---
 
@@ -389,3 +463,4 @@ edgenie-ingestor ingest-dir --dir pipeline/storage/5054
 | **1.5.0** | 2026-08-20 | Replaced legacy Playwright/pdf2svg web extractor with `CambridgeVisualExtractor`. |
 | **2.0.0** | 2026-08-24 | Production Pipeline Update: Updated Stage 1 with `SubjectRegistry` (58 O-Level / 115 A-Level subjects) & year-aware session slugs (`may-june`/`oct-nov`). Updated Stage 3 with MCQ question-span division & watermark filtering. |
 | **2.1.0** | 2026-08-26 | **Database & Cloud Storage Configuration**: Replaced PostgreSQL with **MongoDB** (6 core collections: `subjects`, `papers`, `questions`, `answers`, `visuals`, `pipeline_runs`). Integrated **Firebase Storage** asset hosting with custom CDN domain prefix **`https://assets.edgenie.io`** for all PDFs and visual images. Added `edgenie-ingestor` CLI commands. |
+| **2.2.0** | 2026-08-30 | **Hybrid Stage 2 Text Extraction**: Fully replaced multimodal LLM text extraction with **PyMuPDF Layout Extractor** + **ClassifierAgent**. Zero LLM tokens used for text extraction; JSON saved immediately before classification; text-only Gemini pass (with OpenRouter fallback) populates syllabus topic classification and difficulty analysis. Auto-resolves syllabus paths and excludes `_er_`, `_gt_`, `_ir_`, `_ci_` files. |

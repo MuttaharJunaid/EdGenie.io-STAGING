@@ -15,6 +15,8 @@ dotenv.load_dotenv()
 from pipeline.config import settings
 from pipeline.extractor.paper_type_detector import PaperTypeDetector, PaperCategory
 from pipeline.extractor.syllabus_loader import SyllabusLoader
+from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+from pipeline.extractor.classifier_agent import ClassifierAgent
 from pipeline.scraper.scraper import PapaCambridgeScraper
 
 app = typer.Typer(help="EdGenie Question Extractor & Analyzer CLI")
@@ -34,11 +36,6 @@ def process(
     pdf_path: str = typer.Option(..., "--pdf", "-p", help="Path to raw PDF file"),
     syllabus_path: Optional[str] = typer.Option(None, "--syllabus", "-s", help="Path to syllabus CSV"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocessing even if output exists"),
-    duplicate: bool = typer.Option(
-        False, "--duplicate",
-        help="Use PyMuPDF layout extractor (no LLM for text extraction). "
-             "Classification/difficulty still uses Gemini. Output saved as *_dup.json."
-    ),
     log_level: str = typer.Option(settings.log_level, "--log-level", help="Logging level"),
 ):
     """Processes a single past paper or mark scheme PDF into structured and analyzed JSON."""
@@ -63,19 +60,18 @@ def process(
         console.print(f"[bold red]Error:[/bold red] Unable to determine CAIE document category of the PDF.")
         raise typer.Exit(code=1)
 
-    # Output path: *_dup.json for duplicate strategy, *.json for standard
-    output_json_path = pdf.with_name(pdf.stem + "_dup.json") if duplicate else pdf.with_suffix(".json")
+    # Standard output JSON path: <stem>.json
+    output_json_path = pdf.with_suffix(".json")
     if output_json_path.exists() and not force:
         console.print(f"[yellow]Output file {output_json_path.name} already exists. Use --force to overwrite. Skipping.[/yellow]")
         return
 
     # 2. Parse Metadata from Filename
-    # E.g. 7707_s22_qp_12.pdf -> subject_code=7707, session=summer, year=2022, variant=12
-    scraper_helper = PapaCambridgeScraper(target=None) # Just call class helper
+    scraper_helper = PapaCambridgeScraper(target=None)
     meta = scraper_helper.classify_pdf(pdf.name, "")
 
     # Extract details from path structures if filename lacks them
-    # E.g. storage/7707/2023/jun/filename.pdf
+    # E.g. storage/5054/2023/jun/5054_s23_qp_12.pdf
     parent_parts = pdf.parent.parts
     year = meta.year
     session = "jun"
@@ -83,7 +79,6 @@ def process(
     variant = meta.variant or "11"
 
     if len(parent_parts) >= 3:
-        # Check standard storage folders: /storage/{subject_code}/{year}/{session}
         try:
             possible_year = int(parent_parts[-2])
             year = possible_year
@@ -109,142 +104,92 @@ def process(
     elif syllabus_path:
         console.print(f"[bold yellow]Warning:[/bold yellow] Syllabus CSV file not found at '{syllabus_path}' or in 'syllabi/' directory.")
 
-    # 4. Check API keys — LLM is always needed (for classification at minimum)
-    has_api_keys = os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not has_api_keys:
-        console.print(
-            f"[bold red]Error:[/bold red] No LLM API key found. "
-            "Set GOOGLE_API_KEY or OPENAI_API_KEY in your environment or .env file."
-        )
-        raise typer.Exit(code=1)
-
     is_qp = category in [PaperCategory.MCQ_QP, PaperCategory.ESSAY_QP]
 
-    if duplicate:
-        # ── Duplicate strategy: PyMuPDF layout extraction + Gemini classification only ──
-        console.print(f"\n[bold green]3. Running PyMuPDF Layout Extractor (--duplicate strategy)...[/bold green]")
-        from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
-        from pipeline.extractor.classifier_agent import ClassifierAgent
-
-        layout_extractor = PyMuPDFExtractor()
-        with console.status("[bold green]Extracting text via layout analysis..."):
-            parsed_records = layout_extractor.extract(pdf, category, meta_context)
-        console.print(f"Layout extractor produced [green]{len(parsed_records)}[/green] skeleton records.")
-
-        if not parsed_records:
-            console.print(f"[bold red]Error:[/bold red] Layout extractor returned no records.")
+    # 4. Check API keys if classification will be performed
+    if is_qp and syllabus_text:
+        has_api_keys = os.getenv("GOOGLE_API_KEY") or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not has_api_keys:
+            console.print(
+                f"[bold red]Error:[/bold red] No LLM API key found. "
+                "Set GOOGLE_API_KEY or OPENROUTER_API_KEY in your environment or .env file."
+            )
             raise typer.Exit(code=1)
 
-        # 4. Check for Stage 3 Visuals Manifest & Link Images
-        visuals_manifest_path = pdf.parent / pdf.stem / "manifest.json"
-        if visuals_manifest_path.exists():
-            try:
-                with open(visuals_manifest_path, "r", encoding="utf-8") as mf:
-                    manifest_data = json.load(mf)
-                q_to_files = {}
-                for entry in manifest_data:
-                    q = entry.get("question")
-                    if q is not None:
-                        q_to_files.setdefault(int(q), []).append(entry["relative_path"])
-                patched_count = 0
-                for record in parsed_records:
-                    q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
-                    m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
-                    if m and int(m.group(1)) in q_to_files:
-                        imgs = q_to_files[int(m.group(1))]
-                        record["image"] = imgs if len(imgs) > 1 else imgs[0]
-                        patched_count += 1
-                if patched_count:
-                    console.print(f"  [green]Linked {patched_count} visual figures from Stage 3 manifest.[/green]")
-            except Exception as e:
-                logger.debug(f"Could not auto-link visuals manifest: {e}")
+    # 5. Extract text via Layout Analysis (zero LLM token cost)
+    console.print(f"\n[bold green]3. Running Layout Text Extractor...[/bold green]")
+    layout_extractor = PyMuPDFExtractor()
+    with console.status("[bold green]Extracting text via layout analysis..."):
+        parsed_records = layout_extractor.extract(pdf, category, meta_context)
+    console.print(f"Layout extractor produced [green]{len(parsed_records)}[/green] records.")
 
-        # 5. Save extracted text JSON immediately before calling LLM
-        console.print(f"\n[bold blue]4. Saving Extracted JSON ({output_json_path.name})...[/bold blue]")
+    if not parsed_records:
+        console.print(f"[bold red]Error:[/bold red] Layout extractor returned no records.")
+        raise typer.Exit(code=1)
+
+    # 6. Check for Stage 3 Visuals Manifest & Link Images
+    visuals_manifest_path = pdf.parent / pdf.stem / "manifest.json"
+    if visuals_manifest_path.exists():
         try:
+            with open(visuals_manifest_path, "r", encoding="utf-8") as mf:
+                manifest_data = json.load(mf)
+            q_to_files = {}
+            for entry in manifest_data:
+                q = entry.get("question")
+                if q is not None:
+                    q_to_files.setdefault(int(q), []).append(entry["relative_path"])
+            patched_count = 0
+            for record in parsed_records:
+                q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
+                m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
+                if m and int(m.group(1)) in q_to_files:
+                    imgs = q_to_files[int(m.group(1))]
+                    record["image"] = imgs if len(imgs) > 1 else imgs[0]
+                    patched_count += 1
+            if patched_count:
+                console.print(f"  [green]Linked {patched_count} visual figures from Stage 3 manifest.[/green]")
+        except Exception as e:
+            logger.debug(f"Could not auto-link visuals manifest: {e}")
+
+    # 7. Save extracted text JSON immediately before calling LLM
+    console.print(f"\n[bold blue]4. Saving Extracted JSON ({output_json_path.name})...[/bold blue]")
+    try:
+        with open(output_json_path, "w", encoding="utf-8") as f:
+            json.dump(parsed_records, f, indent=2, ensure_ascii=False)
+        console.print(f"[green]✓ Extracted text saved to: {output_json_path.name}[/green]")
+    except Exception as e:
+        console.print(f"[bold red]Failed to save initial JSON output:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    # 8. Run Gemini classification pass and update only classification fields
+    if is_qp:
+        if syllabus_text:
+            console.print(f"\n[bold green]5. Running Gemini Classification Pass (text-only, using {output_json_path.name} + syllabus)...[/bold green]")
+            classifier = ClassifierAgent()
+            with console.status("[bold green]Classifying questions via Gemini..."):
+                classifications = classifier.classify(parsed_records, syllabus_text, category, meta_context)
+            
+            console.print(f"  [green]✓ Classified {len(classifications)} question(s).[/green]")
+            if classifications:
+                sample_q = next(iter(classifications.values()))
+                console.print(
+                    f"  [dim]Sample classification response ({sample_q.get('question_number')}):\n"
+                    f"    Unit        : {sample_q.get('Unit')}\n"
+                    f"    Topic       : {sample_q.get('Topic')} ({sample_q.get('Topic_name')})\n"
+                    f"    Sub-topics  : {', '.join(sample_q.get('Sub_topic', []))}\n"
+                    f"    Difficulty  : {sample_q.get('Difficulty_label')} ({sample_q.get('Difficulty_score')}/10)\n"
+                    f"    Command word: {', '.join(sample_q.get('Command_words', []))}[/dim]"
+                )
+
+            parsed_records = classifier.merge(parsed_records, classifications)
+            # Overwrite output JSON with updated classification fields
             with open(output_json_path, "w", encoding="utf-8") as f:
                 json.dump(parsed_records, f, indent=2, ensure_ascii=False)
-            console.print(f"[green]✓ Extracted text saved to: {output_json_path.name}[/green]")
-        except Exception as e:
-            console.print(f"[bold red]Failed to save initial JSON output:[/bold red] {e}")
-            raise typer.Exit(code=1)
+            console.print(f"  [green]✓ Updated classification fields in: {output_json_path.name}[/green]")
+        else:
+            console.print(f"[yellow]No syllabus provided — skipping Gemini classification pass. Topic/Difficulty fields remain empty.[/yellow]")
 
-        # 6. Run Gemini classification pass and update only classification fields
-        if is_qp:
-            if syllabus_text:
-                console.print(f"\n[bold green]5. Running Gemini Classification Pass (text-only, using {output_json_path.name} + syllabus)...[/bold green]")
-                classifier = ClassifierAgent()
-                with console.status("[bold green]Classifying questions via Gemini..."):
-                    classifications = classifier.classify(parsed_records, syllabus_text, category, meta_context)
-                
-                console.print(f"  [green]✓ Classified {len(classifications)} question(s).[/green]")
-                if classifications:
-                    sample_q = next(iter(classifications.values()))
-                    console.print(
-                        f"  [dim]Sample classification response ({sample_q.get('question_number')}):\n"
-                        f"    Unit        : {sample_q.get('Unit')}\n"
-                        f"    Topic       : {sample_q.get('Topic')} ({sample_q.get('Topic_name')})\n"
-                        f"    Sub-topics  : {', '.join(sample_q.get('Sub_topic', []))}\n"
-                        f"    Difficulty  : {sample_q.get('Difficulty_label')} ({sample_q.get('Difficulty_score')}/10)\n"
-                        f"    Command word: {', '.join(sample_q.get('Command_words', []))}[/dim]"
-                    )
-
-                parsed_records = classifier.merge(parsed_records, classifications)
-                # Overwrite output JSON with updated classification fields
-                with open(output_json_path, "w", encoding="utf-8") as f:
-                    json.dump(parsed_records, f, indent=2, ensure_ascii=False)
-                console.print(f"  [green]✓ Updated classification fields in: {output_json_path.name}[/green]")
-            else:
-                console.print(f"[yellow]No syllabus provided — skipping Gemini classification pass. Topic/Difficulty fields remain empty.[/yellow]")
-
-    else:
-        # ── Standard strategy: full multimodal LLM extraction + classification ──
-        console.print(f"\n[bold green]3. Running AGENTIC Multimodal PDF Parser...[/bold green]")
-        from pipeline.extractor.agentic_parser import AgenticPDFParser
-        agentic_parser = AgenticPDFParser()
-        with console.status("[bold green]Sending raw PDF to Multimodal LLM..."):
-            parsed_records = agentic_parser.parse_pdf(pdf, category, syllabus_text, meta_context)
-        console.print(f"Agentic parser successfully extracted [green]{len(parsed_records)}[/green] records.")
-
-        if not parsed_records:
-            console.print(f"[bold red]Error:[/bold red] Agentic parser returned no records.")
-            raise typer.Exit(code=1)
-
-        # Check for Stage 3 Visuals Manifest & Link Images
-        visuals_manifest_path = pdf.parent / pdf.stem / "manifest.json"
-        if visuals_manifest_path.exists():
-            try:
-                with open(visuals_manifest_path, "r", encoding="utf-8") as mf:
-                    manifest_data = json.load(mf)
-                q_to_files = {}
-                for entry in manifest_data:
-                    q = entry.get("question")
-                    if q is not None:
-                        q_to_files.setdefault(int(q), []).append(entry["relative_path"])
-                patched_count = 0
-                for record in parsed_records:
-                    q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
-                    m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
-                    if m and int(m.group(1)) in q_to_files:
-                        imgs = q_to_files[int(m.group(1))]
-                        record["image"] = imgs if len(imgs) > 1 else imgs[0]
-                        patched_count += 1
-                if patched_count:
-                    console.print(f"  [green]Linked {patched_count} visual figures from Stage 3 manifest.[/green]")
-            except Exception as e:
-                logger.debug(f"Could not auto-link visuals manifest: {e}")
-
-        # Save standard output JSON
-        console.print(f"\n[bold blue]4. Saving JSON Output...[/bold blue]")
-        try:
-            with open(output_json_path, "w", encoding="utf-8") as f:
-                json.dump(parsed_records, f, indent=2, ensure_ascii=False)
-            console.print(f"[green]Saved JSON file successfully to: {output_json_path.name}[/green]")
-        except Exception as e:
-            console.print(f"[bold red]Failed to save JSON output:[/bold red] {e}")
-            raise typer.Exit(code=1)
-
-    # 7. Print Results summary table
+    # 9. Print Results summary table
     table = Table(title=f"Extraction Results: {pdf.name}")
     table.add_column("Q Number", style="cyan")
     table.add_column("Marks", style="magenta")
@@ -286,10 +231,6 @@ def process_dir(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory containing PDF files"),
     syllabus_path: Optional[str] = typer.Option(None, "--syllabus", "-s", help="Path to syllabus CSV"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocessing of existing files"),
-    duplicate: bool = typer.Option(
-        False, "--duplicate",
-        help="Use PyMuPDF layout extractor strategy for all papers (same as --duplicate in process)."
-    ),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
     """Processes all PDF past papers inside a directory."""
@@ -311,9 +252,7 @@ def process_dir(
     # Sort sequentially starting from the first stored PDF
     pdf_files.sort(key=lambda p: (str(p.parent).lower(), p.name.lower()))
 
-    strategy = "[bold cyan]duplicate (PyMuPDF)[/bold cyan]" if duplicate else "[bold cyan]standard (agentic LLM)[/bold cyan]"
-    console.print(f"Found [bold cyan]{len(pdf_files)}[/bold cyan] PDF papers to process (excluding Examiner Reports and Grade Thresholds).")
-    console.print(f"Strategy: {strategy}")
+    console.print(f"Found [bold cyan]{len(pdf_files)}[/bold cyan] PDF papers to process (excluding Examiner Reports, Grade Thresholds, and Instructions).")
 
     processed_count = 0
     for pdf in pdf_files:
@@ -323,7 +262,6 @@ def process_dir(
                 pdf_path=str(pdf),
                 syllabus_path=syllabus_path,
                 force=force,
-                duplicate=duplicate,
                 log_level=log_level
             )
             processed_count += 1
