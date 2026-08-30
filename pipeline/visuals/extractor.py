@@ -33,11 +33,15 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# Matches an ISOLATED caption line, e.g. "Fig. 10.2", "Figure 1.1"
-DEFAULT_CAPTION_PATTERN = re.compile(r"^Fig(?:ure)?\.?\s*(\d+)\.(\d+)\s*$", re.IGNORECASE)
+# Matches an ISOLATED caption line, e.g. "Fig. 10.2", "Figure 1.1", "Table 7.1", "Fig. 9.1 (not to scale)", "Fig.1.1"
+DEFAULT_CAPTION_PATTERN = re.compile(
+    r"^\s*(Fig(?:ure)?\.?|Table)\s*(\d{1,2})\.(\d{1,2})(?:\s*\([^\)]+\))?\s*$",
+    re.IGNORECASE,
+)
 
 LEFT_MARGIN_X = 60.0       # question numbers sit left of this
 HEADER_Y = 55.0            # page-number-in-header sits above this; ignore it
+MAX_LINE_HEIGHT = 45.0     # guard against rotated page-tall margin text (e.g. 'DO NOT WRITE IN THIS MARGIN')
 PROSE_MIN_WIDTH = 150.0    # a "real sentence" line is at least this wide
 PROSE_MAX_X0 = 110.0       # ...and starts within the normal text column
 PROSE_CHAIN_GAP = 20.0     # max vertical gap between lines of one paragraph
@@ -45,6 +49,7 @@ CONTENT_MAX_X = 522.0      # "For Examiner's Use" sidebar starts right of this
 MIN_STROKE_LEN = 3.0       # drop sub-pixel path fragments, keep thin long lines
 GAP_BREAK = 40.0           # blank vertical gap (pt) that splits a figure into bands
 STITCH_GAP_PX = 16         # visual gap between stitched bands in the output
+PART_LABEL = re.compile(r"^\s*\(([a-z]|i{1,3}v?|vi{0,3}|ix|x{0,3})\)\s*", re.IGNORECASE)
 
 # MCQ paper detection & extraction constants
 MCQ_Q_PATTERN = re.compile(r"^(\d{1,2})\s+\S")       # "5 Two men..." or "40 Which..."
@@ -196,6 +201,8 @@ class CambridgeVisualExtractor:
                 bbox = fitz.Rect(line["bbox"])
                 if bbox.x0 >= self.content_max_x:
                     continue  # Examiner-use sidebar
+                if (bbox.y1 - bbox.y0) > MAX_LINE_HEIGHT:
+                    continue  # Rotated page-tall margin text or watermark run
                 bold = any("Bold" in s.get("font", "") for s in line.get("spans", []))
                 lines.append(Line(text=text, bbox=bbox, bold=bold, width=bbox.width))
         
@@ -236,16 +243,19 @@ class CambridgeVisualExtractor:
         return anchors
 
     def get_captions(self, lines: List[Line]) -> List[Dict[str, Any]]:
-        """Find caption lines matching 'Fig. N.M'."""
+        """Find caption lines matching 'Fig. N.M' or 'Table N.M' with optional parenthesized note."""
         caps: List[Dict[str, Any]] = []
         for ln in lines:
             m = self.caption_pattern.match(ln.text.strip())
             if m:
+                tag = m.group(1).lower()
+                kind = "table" if "tab" in tag else "fig"
                 caps.append({
-                    "q_from_caption": int(m.group(1)),
-                    "sub": int(m.group(2)),
+                    "q_from_caption": int(m.group(2)),
+                    "sub": int(m.group(3)),
                     "bbox": ln.bbox,
                     "label": ln.text.strip(),
+                    "kind": kind,
                 })
         caps.sort(key=lambda c: c["bbox"].y0)
         return caps
@@ -305,6 +315,45 @@ class CambridgeVisualExtractor:
                     j -= 1
             i -= 1
         return page_top
+
+    def find_lower_bound(self, caption: Dict[str, Any], lines: List[Line], page_bottom: float = 780.0) -> float:
+        """
+        Walk downward from table caption to nearest subsequent question part, prose line, marks, or caption.
+        """
+        below = [ln for ln in lines if ln.bbox.y0 >= caption["bbox"].y1 - 0.5]
+        below.sort(key=lambda l: l.bbox.y0)
+        for ln in below:
+            t = ln.text.strip()
+            if self.caption_pattern.match(t):
+                return ln.bbox.y0
+            if PART_LABEL.match(t) or re.match(r"^\s*\[\d+\]\s*$", t) or re.match(r"^\[Total:", t, re.I):
+                return ln.bbox.y0
+            if ln.bbox.x0 <= self.left_margin_x and (t.isdigit() or re.match(r"^\d{1,2}\s+\S", t)):
+                return ln.bbox.y0
+            if ln.bbox.x0 <= self.prose_max_x0 and ln.width >= self.prose_min_width:
+                return ln.bbox.y0
+        return page_bottom
+
+    def get_caption_bounds(
+        self,
+        caption: Dict[str, Any],
+        lines: List[Line],
+        page_top: float = 40.0,
+        page_bottom: float = 780.0,
+    ) -> Tuple[float, float]:
+        """
+        Returns (upper_y, lower_y) for a caption region based on whether it is a Fig or Table.
+        - Fig captions sit below their artwork (walk upward for upper bound).
+        - Table captions sit above their grid (walk downward for lower bound).
+        """
+        kind = caption.get("kind", "fig")
+        if kind == "table":
+            upper = caption["bbox"].y0
+            lower = self.find_lower_bound(caption, lines, page_bottom)
+        else:
+            upper = self.find_upper_bound(caption, lines, page_top)
+            lower = caption["bbox"].y1
+        return (upper, lower)
 
     def render_stitched(
         self,
@@ -610,8 +659,7 @@ class CambridgeVisualExtractor:
             if captions:
                 bounds: List[Tuple[float, float]] = []
                 for cap in captions:
-                    upper = self.find_upper_bound(cap, lines)
-                    lower = cap["bbox"].y1
+                    upper, lower = self.get_caption_bounds(cap, lines, page_top=40.0, page_bottom=page.rect.y1 - 20)
                     bounds.append((upper, lower))
 
                 # Mark geometry overlapping any caption band to prevent duplicate fallbacks
@@ -667,7 +715,8 @@ class CambridgeVisualExtractor:
                     if qnum is None:
                         qnum = last_seen_question if last_seen_question is not None else cap["q_from_caption"]
 
-                    clean_label = cap["label"].replace(". ", "").replace(".", "_").replace(" ", "")
+                    tag = "Table" if cap.get("kind") == "table" else "Fig"
+                    clean_label = f"{tag}_{cap['q_from_caption']}_{cap['sub']}"
                     fname = f"p{pno + 1}_q{qnum}_{clean_label}.png"
                     save_path = output_dir / fname
                     canvas.save(str(save_path))

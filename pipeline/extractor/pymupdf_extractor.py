@@ -101,8 +101,7 @@ class PyMuPDFExtractor:
             captions = self._cve.get_captions(lines)
             bands = []
             for cap in captions:
-                upper = self._cve.find_upper_bound(cap, lines)
-                lower = cap["bbox"].y1
+                upper, lower = self._cve.get_caption_bounds(cap, lines, page_top=40.0, page_bottom=page.rect.y1 - 20)
                 bands.append((upper, lower))
             page_data.append({"lines": lines, "anchors": anchors, "bands": bands})
         return page_data

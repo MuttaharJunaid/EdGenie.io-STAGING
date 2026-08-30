@@ -16,7 +16,7 @@ from pipeline.config import settings
 from pipeline.extractor.paper_type_detector import PaperTypeDetector, PaperCategory
 from pipeline.extractor.syllabus_loader import SyllabusLoader
 from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
-from pipeline.extractor.classifier_agent import ClassifierAgent
+from pipeline.extractor.classifier_agent import ClassifierAgent, QuotaExceededError
 from pipeline.scraper.scraper import PapaCambridgeScraper
 
 app = typer.Typer(help="EdGenie Question Extractor & Analyzer CLI")
@@ -348,8 +348,14 @@ def classify_cmd(
         console.print("[bold red]Error:[/bold red] You must provide either --pdf or --json path.")
         raise typer.Exit(code=1)
 
-    success = classify_single(target, syllabus_path=syllabus_path, force=force)
-    if not success:
+    try:
+        success = classify_single(target, syllabus_path=syllabus_path, force=force)
+        if not success:
+            raise typer.Exit(code=1)
+    except QuotaExceededError as qe:
+        console.print(f"\n[bold red]Gemini API Quota Exceeded (Resource Exhausted).[/bold red]")
+        console.print(f"[bold yellow]Classification stopped at: {target.name}[/bold yellow]")
+        console.print(f"[dim]{qe}[/dim]")
         raise typer.Exit(code=1)
 
 
@@ -382,10 +388,21 @@ def classify_dir_cmd(
     console.print(f"Found [bold cyan]{len(json_files)}[/bold cyan] Question Paper files to classify.")
 
     count = 0
-    for target in json_files:
-        console.print(f"\n[bold magenta]Classifying File: {target.name}[/bold magenta]")
-        if classify_single(target, syllabus_path=syllabus_path, force=force):
-            count += 1
+    last_successful_file: Optional[str] = None
+    try:
+        for target in json_files:
+            console.print(f"\n[bold magenta]Classifying File: {target.name}[/bold magenta]")
+            if classify_single(target, syllabus_path=syllabus_path, force=force):
+                count += 1
+                last_successful_file = target.name
+    except QuotaExceededError as qe:
+        console.print(f"\n[bold red]Gemini API Quota Exceeded (Resource Exhausted).[/bold red]")
+        console.print(f"[bold yellow]Classification terminated early.[/bold yellow]")
+        if last_successful_file:
+            console.print(f"[bold green]Last successfully processed file: {last_successful_file}[/bold green]")
+        else:
+            console.print("[dim]No files were successfully processed before quota exhaustion.[/dim]")
+        raise typer.Exit(code=1)
 
     console.print(f"\n[bold green]Classification Finished![/bold green] Successfully classified {count} files.")
 
@@ -406,7 +423,12 @@ def process_cmd(
 
     output_json, records, category, meta = res
     if category in [PaperCategory.MCQ_QP, PaperCategory.ESSAY_QP]:
-        classify_single(output_json, syllabus_path=syllabus_path, force=force)
+        try:
+            classify_single(output_json, syllabus_path=syllabus_path, force=force)
+        except QuotaExceededError as qe:
+            console.print(f"\n[bold red]Gemini API Quota Exceeded (Resource Exhausted).[/bold red]")
+            console.print(f"[bold yellow]Process stopped at: {pdf.name}[/bold yellow]")
+            raise typer.Exit(code=1)
 
 
 @app.command("process-dir")
@@ -436,14 +458,25 @@ def process_dir_cmd(
     console.print(f"Found [bold cyan]{len(pdf_files)}[/bold cyan] PDF papers to process.")
 
     count = 0
-    for pdf in pdf_files:
-        console.print(f"\n[bold magenta]Processing File: {pdf.name}[/bold magenta]")
-        res = extract_single(pdf, force=force)
-        if res is not None:
-            output_json, records, category, meta = res
-            if category in [PaperCategory.MCQ_QP, PaperCategory.ESSAY_QP]:
-                classify_single(output_json, syllabus_path=syllabus_path, force=force)
-            count += 1
+    last_successful_file: Optional[str] = None
+    try:
+        for pdf in pdf_files:
+            console.print(f"\n[bold magenta]Processing File: {pdf.name}[/bold magenta]")
+            res = extract_single(pdf, force=force)
+            if res is not None:
+                output_json, records, category, meta = res
+                if category in [PaperCategory.MCQ_QP, PaperCategory.ESSAY_QP]:
+                    classify_single(output_json, syllabus_path=syllabus_path, force=force)
+                count += 1
+                last_successful_file = pdf.name
+    except QuotaExceededError as qe:
+        console.print(f"\n[bold red]Gemini API Quota Exceeded (Resource Exhausted).[/bold red]")
+        console.print(f"[bold yellow]Directory processing terminated early.[/bold yellow]")
+        if last_successful_file:
+            console.print(f"[bold green]Last successfully processed file: {last_successful_file}[/bold green]")
+        else:
+            console.print("[dim]No files were successfully processed before quota exhaustion.[/dim]")
+        raise typer.Exit(code=1)
 
     console.print(f"\n[bold green]Directory Processing Finished![/bold green] Successfully processed {count} files.")
 

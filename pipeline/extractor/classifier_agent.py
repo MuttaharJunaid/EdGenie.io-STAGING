@@ -162,18 +162,34 @@ CLASSIFICATION INSTRUCTIONS:
             try:
                 return self._classify_with_gemini(prompt)
             except Exception as gemini_err:
+                err_str = str(gemini_err).lower()
+                is_quota = any(q in err_str for q in ["resource_exhausted", "429", "quota", "rate limit", "credits"])
                 logger.warning(
                     f"Gemini classification pass failed ({gemini_err}). "
                     "Attempting fallback to OpenRouter..."
                 )
                 if os.getenv("OPENROUTER_API_KEY"):
-                    return self._classify_with_openrouter(prompt)
+                    try:
+                        return self._classify_with_openrouter(prompt)
+                    except Exception as or_err:
+                        or_err_str = str(or_err).lower()
+                        if is_quota or any(q in or_err_str for q in ["resource_exhausted", "429", "quota", "credits", "402"]):
+                            raise QuotaExceededError(f"Gemini & OpenRouter quotas exhausted: {gemini_err} | {or_err}") from or_err
+                        raise or_err
                 else:
+                    if is_quota:
+                        raise QuotaExceededError(f"Gemini quota exceeded: {gemini_err}") from gemini_err
                     logger.error("OPENROUTER_API_KEY not set; cannot fallback to OpenRouter.")
                     raise gemini_err
 
         elif self.provider == "openrouter" or os.getenv("OPENROUTER_API_KEY"):
-            return self._classify_with_openrouter(prompt)
+            try:
+                return self._classify_with_openrouter(prompt)
+            except Exception as or_err:
+                or_err_str = str(or_err).lower()
+                if any(q in or_err_str for q in ["resource_exhausted", "429", "quota", "credits", "402"]):
+                    raise QuotaExceededError(f"OpenRouter quota exhausted: {or_err}") from or_err
+                raise or_err
         else:
             raise RuntimeError("No valid API key (GOOGLE_API_KEY or OPENROUTER_API_KEY) found for classification pass.")
 

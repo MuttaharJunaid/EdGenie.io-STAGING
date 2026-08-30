@@ -21,16 +21,41 @@ class TestCambridgeVisualExtractorComponents:
         return CambridgeVisualExtractor()
 
     def test_caption_pattern_matching(self, extractor):
-        """Captions must match isolated lines like 'Fig. 1.1', 'Figure 10.2'."""
+        """Captions must match isolated lines like 'Fig. 1.1', 'Figure 10.2', 'Table 7.1', 'Fig. 9.1 (not to scale)'."""
         assert extractor.caption_pattern.match("Fig. 1.1")
         assert extractor.caption_pattern.match("Fig. 10.2")
         assert extractor.caption_pattern.match("Figure 3.4")
         assert extractor.caption_pattern.match("Fig.1.1")
+        assert extractor.caption_pattern.match("Table 7.1")
+        assert extractor.caption_pattern.match("Table 9.1")
+        assert extractor.caption_pattern.match("Fig. 9.1 (not to scale)")
+        assert extractor.caption_pattern.match("Fig. 1.1 (not to scale)")
 
         # Must not match inline mentions in prose
         assert not extractor.caption_pattern.match("As shown in Fig. 1.1, calculate the force.")
         assert not extractor.caption_pattern.match("See Fig. 2.1 below.")
-        assert not extractor.caption_pattern.match("Table 1.1")
+        assert not extractor.caption_pattern.match("The values shown in Table 7.1.")
+
+    def test_get_caption_bounds_fig_and_table(self, extractor):
+        """Fig captions scan upward for upper bound; Table captions scan downward for lower bound."""
+        lines = [
+            Line(text="Question text introducing the figure.", bbox=fitz.Rect(70, 100, 400, 120), bold=False, width=330),
+            Line(text="Fig. 1.1", bbox=fitz.Rect(200, 250, 250, 265), bold=True, width=50),
+            Line(text="Table 1.1", bbox=fitz.Rect(200, 300, 250, 315), bold=True, width=50),
+            Line(text="(a) State the relationship shown in Table 1.1.", bbox=fitz.Rect(70, 450, 400, 470), bold=False, width=330),
+        ]
+        caps = extractor.get_captions(lines)
+        assert len(caps) == 2
+        assert caps[0]["kind"] == "fig"
+        assert caps[1]["kind"] == "table"
+
+        # Fig bounds: upper is preceding prose y1 (120), lower is caption y1 (265)
+        fig_bounds = extractor.get_caption_bounds(caps[0], lines)
+        assert fig_bounds == (120, 265)
+
+        # Table bounds: upper is caption y0 (300), lower is following question part (a) y0 (450)
+        table_bounds = extractor.get_caption_bounds(caps[1], lines)
+        assert table_bounds == (300, 450)
 
     def test_get_question_anchors(self, extractor):
         """Question anchors must be bold digits at the left margin."""
