@@ -43,9 +43,11 @@ BOILERPLATE_PATTERNS = [
     re.compile(r"^\[?Turn over\]?", re.IGNORECASE),
     re.compile(r"^BLANK PAGE$", re.IGNORECASE),
     re.compile(r"^This document consists", re.IGNORECASE),
-    re.compile(r"^Permission to reproduce", re.IGNORECASE),
-    re.compile(r"^University of Cambridge", re.IGNORECASE),
-    re.compile(r"^Cambridge Assessment", re.IGNORECASE),
+    re.compile(r"Permission to reproduce", re.IGNORECASE),
+    re.compile(r"Every reasonable effort has been made", re.IGNORECASE),
+    re.compile(r"University of Cambridge International Examinations", re.IGNORECASE),
+    re.compile(r"University of Cambridge", re.IGNORECASE),
+    re.compile(r"Cambridge Assessment", re.IGNORECASE),
     re.compile(r"^DC\s*\(", re.IGNORECASE),
     re.compile(r"^[\*\s\d]{6,}$"),
 ]
@@ -79,7 +81,7 @@ class PyMuPDFExtractor:
         if line.bbox.x0 > CONTENT_MAX_X:
             return True
         t = line.text.strip()
-        return any(p.match(t) for p in BOILERPLATE_PATTERNS)
+        return any(p.search(t) for p in BOILERPLATE_PATTERNS)
 
     # ── Shared: build per-page data ────────────────────────────────────────
 
@@ -432,22 +434,32 @@ class PyMuPDFExtractor:
             lns = raw[qnum]
             stem_parts: List[str] = []
             options: Dict[str, str] = {"A": "", "B": "", "C": "", "D": ""}
-            current_opt: str = None
+            current_opt: Optional[str] = None
 
-            for ln in lns:
+            for i, ln in enumerate(lns):
                 t = ln.text.strip()
-                # Strip leading question-number prefix (e.g. "5 Two men..." → "Two men...")
-                t_body = re.sub(r"^\d{1,2}\s+", "", t) if MCQ_Q_PATTERN.match(t) else t
+                # Only strip leading question-number prefix on the first line of the question
+                if i == 0 and re.match(rf"^{qnum}\s+", t):
+                    t_body = re.sub(rf"^{qnum}\s+", "", t)
+                else:
+                    t_body = t
 
-                opt_m = OPTION_INLINE.match(t_body)
                 solo_m = OPTION_SOLO.match(t_body)
+                opt_m = OPTION_INLINE.match(t_body)
 
-                if opt_m and opt_m.group(1) in MCQ_ANSWER_LABELS:
-                    current_opt = opt_m.group(1)
-                    options[current_opt] = opt_m.group(2).strip()
-                elif solo_m and solo_m.group(1) in MCQ_ANSWER_LABELS:
+                # Disambiguate Option A from question stem starting with "A ..." (e.g. "A passenger is sitting...")
+                is_real_option_a = True
+                if opt_m and opt_m.group(1) == "A" and current_opt is None:
+                    rest = opt_m.group(2).strip()
+                    if len(rest.split()) > 3 and not re.match(r"^(is|are|has|have|can|must|decreases|increases|unchanged)\b", rest):
+                        is_real_option_a = False
+
+                if solo_m and solo_m.group(1) in MCQ_ANSWER_LABELS:
                     current_opt = solo_m.group(1)
                     options[current_opt] = ""
+                elif opt_m and opt_m.group(1) in MCQ_ANSWER_LABELS and is_real_option_a:
+                    current_opt = opt_m.group(1)
+                    options[current_opt] = opt_m.group(2).strip()
                 elif current_opt is not None:
                     options[current_opt] = (options[current_opt] + " " + t_body).strip()
                 else:

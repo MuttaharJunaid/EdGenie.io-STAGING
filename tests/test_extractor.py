@@ -290,3 +290,39 @@ def test_pymupdf_extractor_real_essay_ms():
     assert "Parts" in results[0]
     assert len(results[0]["Parts"]) > 0
 
+
+def test_pymupdf_extractor_real_mcq_qp():
+    """Extract real MCQ QP PDF and verify option parsing and stem integrity."""
+    from pathlib import Path
+    from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+    from pipeline.extractor.paper_type_detector import PaperCategory
+
+    pdf_path = Path("pipeline/storage/5054/2010/jun/5054_s10_qp_11.pdf")
+    if not pdf_path.exists():
+        pytest.skip("Test storage file not present")
+
+    ext = PyMuPDFExtractor()
+    meta = {"session": "jun", "variant": "11", "year": 2010, "subject_code": "5054"}
+    results = ext.extract(pdf_path, PaperCategory.MCQ_QP, meta)
+
+    assert len(results) == 40
+    # Q1 options order & values
+    q1 = results[0]
+    assert q1["QuestionNumber"] == "Jun/11/2010/Q1"
+    assert q1["Options"]["A"] == "mw"
+    assert q1["Options"]["B"] == "mW"
+    assert q1["Options"]["C"] == "Mw"
+    assert q1["Options"]["D"] == "MW"
+
+    # Q7 stem starting with "A passenger..." preserved as stem, not swallowed as Option A
+    q7 = results[6]
+    assert "passenger" in q7["Question_text"].lower()
+    assert q7["Options"]["A"] == "decreases decreases"
+    assert q7["Options"]["B"] == "increases increases"
+
+    # Q8 numbers not stripped from option contents
+    q8 = results[7]
+    assert q8["Options"]["A"] == "1.5 kg"
+    assert q8["Options"]["C"] == "30 kg"
+
+

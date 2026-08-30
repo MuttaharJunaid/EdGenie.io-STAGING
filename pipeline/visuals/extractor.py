@@ -183,7 +183,7 @@ class CambridgeVisualExtractor:
 
 
     def get_lines(self, page: fitz.Page) -> List[Line]:
-        """Extract text lines with bold detection, skipping sidebars."""
+        """Extract text lines with bold detection, skipping sidebars and clustering into visual rows."""
         lines: List[Line] = []
         d = page.get_text("dict")
         for block in d.get("blocks", []):
@@ -198,8 +198,26 @@ class CambridgeVisualExtractor:
                     continue  # Examiner-use sidebar
                 bold = any("Bold" in s.get("font", "") for s in line.get("spans", []))
                 lines.append(Line(text=text, bbox=bbox, bold=bold, width=bbox.width))
+        
+        # Cluster lines into visual rows (chaining y0 gap <= 2.0pt) before sorting by x0
         lines.sort(key=lambda l: l.bbox.y0)
-        return lines
+        rows: List[List[Line]] = []
+        for ln in lines:
+            if not rows:
+                rows.append([ln])
+            else:
+                last_in_row = rows[-1][-1]
+                row_y0 = min(item.bbox.y0 for item in rows[-1])
+                if abs(ln.bbox.y0 - row_y0) <= 2.5 or (ln.bbox.y0 - last_in_row.bbox.y0 <= 2.0):
+                    rows[-1].append(ln)
+                else:
+                    rows.append([ln])
+
+        clustered_lines: List[Line] = []
+        for r in rows:
+            r.sort(key=lambda l: l.bbox.x0)
+            clustered_lines.extend(r)
+        return clustered_lines
 
     def get_question_anchors(self, lines: List[Line]) -> List[Tuple[int, float]]:
         """[(question_number, y0), ...] using left-margin layout geometry."""
@@ -418,16 +436,33 @@ class CambridgeVisualExtractor:
             if max(d["rect"].width, d["rect"].height) > self.min_stroke_len
             and not (min(d["rect"].width, d["rect"].height) < 2.0 and max(d["rect"].width, d["rect"].height) > 300)
         ]
-        clusters = [
+        all_clusters = [
             r for r in self.cluster_rects(raw_rects)
             if r.get_area() >= MCQ_MIN_CLUSTER_AREA
             or (max(r.width, r.height) >= MCQ_MIN_CLUSTER_DIM and min(r.width, r.height) >= 5.0)
         ]
 
-        if not clusters:
+        if not all_clusters:
             return last_seen_question
 
-        filtered_clusters = clusters
+        # Text-density filter: only extract as diagram if text coverage < 8% (density < 0.08).
+        # Clusters with density >= 0.08 are answer/data tables with prose options, not diagrams.
+        text_blocks = page.get_text("blocks")
+        filtered_clusters = []
+        for c in all_clusters:
+            c_area = c.get_area()
+            text_area = 0.0
+            for b in text_blocks:
+                b_rect = fitz.Rect(b[:4])
+                if rects_touch(c, b_rect):
+                    intersection = c & b_rect
+                    text_area += intersection.get_area()
+            density = (text_area / c_area) if c_area > 0 else 0.0
+            if density < 0.08:
+                filtered_clusters.append(c)
+
+        if not filtered_clusters:
+            return last_seen_question
 
         # Build question spans: (q_number, span_y_top, span_y_bottom)
         page_bottom = page.rect.y1 - 20
@@ -483,9 +518,9 @@ class CambridgeVisualExtractor:
                         continue
                     if ln.bbox.x0 <= 80 and ln.width > 200:
                         continue
-                    # Proximity checks
-                    if grp_y0 - 20 <= ln.bbox.y0 and ln.bbox.y1 <= grp_y1 + 30:
-                        if ln.bbox.x0 <= grp_x1 + 80 and ln.bbox.x1 >= grp_x0 - 80:
+                    # Proximity checks (generous bounds so labels, arrow annotations, and axis titles are captured without being cut tight)
+                    if grp_y0 - 25 <= ln.bbox.y0 and ln.bbox.y1 <= grp_y1 + 35:
+                        if ln.bbox.x0 <= grp_x1 + 90 and ln.bbox.x1 >= grp_x0 - 90:
                             label_boxes.append(ln.bbox)
 
                 all_boxes = grp + label_boxes
