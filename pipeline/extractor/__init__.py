@@ -9,10 +9,11 @@ from pipeline.extractor.question_parser import QuestionParser
 from pipeline.extractor.topic_classifier import TopicClassifierAgent, TopicClassificationResult
 from pipeline.extractor.difficulty_analyzer import DifficultyAnalyzerAgent, DifficultyAnalysisResult
 from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
-from pipeline.extractor.classifier_agent import ClassifierAgent, SingleClassification, ClassificationContainer
+from pipeline.extractor.classifier_agent import ClassifierAgent, SingleClassification, ClassificationContainer, QuotaExceededError
 from pipeline.extractor.agentic_parser import AgenticPDFParser
 
 __all__ = [
+    "QuotaExceededError",
     "MCQOptions",
     "MCQQuestion",
     "MCQAnswer",

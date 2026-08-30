@@ -32,7 +32,9 @@ from pydantic import BaseModel
 from pipeline.config import settings
 from pipeline.extractor.paper_type_detector import PaperCategory
 
-logger = logging.getLogger(__name__)
+class QuotaExceededError(Exception):
+    """Raised when LLM API resource/quota limits are exhausted (HTTP 429 / RESOURCE_EXHAUSTED)."""
+    pass
 
 
 # ── Classification-only output schema ─────────────────────────────────────────
