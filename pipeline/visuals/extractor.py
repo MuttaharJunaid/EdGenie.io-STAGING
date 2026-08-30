@@ -230,14 +230,14 @@ class CambridgeVisualExtractor:
         """[(question_number, y0), ...] using left-margin layout geometry."""
         anchors: List[Tuple[int, float]] = []
         for ln in lines:
-            if ln.bbox.x0 >= self.left_margin_x or ln.bbox.y0 <= self.header_y or not ln.bold:
+            if ln.bbox.x0 >= self.left_margin_x or ln.bbox.y0 <= self.header_y or ln.bbox.y0 >= 780:
                 continue
             stripped = ln.text.strip()
-            if stripped.isdigit() and len(stripped) <= 2:
+            if stripped.isdigit() and len(stripped) <= 2 and int(stripped) >= 1:
                 anchors.append((int(stripped), ln.bbox.y0))
             else:
-                m = re.match(r"^(\d{1,2})\s+\S", ln.text)
-                if m:
+                m = re.match(r"^(\d{1,2})\s+\S", stripped)
+                if m and int(m.group(1)) >= 1:
                     anchors.append((int(m.group(1)), ln.bbox.y0))
         anchors.sort(key=lambda a: a[1])
         return anchors
