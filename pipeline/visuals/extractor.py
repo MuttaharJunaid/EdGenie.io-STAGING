@@ -634,23 +634,41 @@ class CambridgeVisualExtractor:
                 last_seen_question = anchors[-1][0]
             captions = self.get_captions(lines)
 
-            # Preserve thin-but-long strokes using max dimension
-            raw_rects = [
-                d["rect"] for d in page.get_drawings()
-                if max(d["rect"].width, d["rect"].height) > self.min_stroke_len
-            ]
-            vector_rects = [
-                r for r in self.cluster_rects(raw_rects)
-                if r.get_area() > self.min_vector_area or max(r.width, r.height) > 60
-            ]
-            # Build raster list alongside xref lookup for ribbon detection
+            # Content printable limits
+            PRINT_X0, PRINT_X1 = 35.0, 540.0
+            PRINT_Y0, PRINT_Y1 = 45.0, 785.0
+
+            # 1. Filter printable drawings (drop margin text, vertical stripes, crop marks)
+            filtered_drawings = []
+            for d in page.get_drawings():
+                r = fitz.Rect(d["rect"]) & page.rect
+                if max(r.width, r.height) <= self.min_stroke_len:
+                    continue
+                # Left / right margin gutter (e.g. DO NOT WRITE IN THIS MARGIN sidebar)
+                if r.x1 <= PRINT_X0 or r.x0 >= PRINT_X1:
+                    continue
+                # Rotated page-tall margin lines or watermark runs
+                if r.height > 400 and r.width < 50:
+                    continue
+                # Header / footer corner registration marks
+                if (r.y1 <= PRINT_Y0 or r.y0 >= PRINT_Y1) and (r.x1 <= 65.0 or r.x0 >= 520.0):
+                    continue
+                filtered_drawings.append(r)
+
+            # 2. Filter embedded images
             raster_xref_map = self._build_raster_xref_map(page)
-            raster_rects = [
-                fitz.Rect(img["bbox"])
-                for img in page.get_image_info()
-                if img["bbox"][0] < self.content_max_x
-            ]
-            all_geo = [("vector", r) for r in vector_rects] + [("raster", r) for r in raster_rects]
+            filtered_rasters = []
+            for img in page.get_image_info():
+                r = fitz.Rect(img["bbox"]) & page.rect
+                if r.x1 <= PRINT_X0 or r.x0 >= PRINT_X1 or r.y1 <= PRINT_Y0 or r.y0 >= PRINT_Y1:
+                    continue
+                bbox_key = tuple(img["bbox"])
+                xref = raster_xref_map.get(bbox_key)
+                if xref and self._is_papacambridge_ribbon(doc, xref):
+                    continue
+                filtered_rasters.append(r)
+
+            all_geo = [("vector", r) for r in filtered_drawings] + [("raster", r) for r in filtered_rasters]
 
             claimed = [False] * len(all_geo)
             overlaps_any_caption = [False] * len(all_geo)
@@ -659,7 +677,7 @@ class CambridgeVisualExtractor:
             if captions:
                 bounds: List[Tuple[float, float]] = []
                 for cap in captions:
-                    upper, lower = self.get_caption_bounds(cap, lines, page_top=40.0, page_bottom=page.rect.y1 - 20)
+                    upper, lower = self.get_caption_bounds(cap, lines, page_top=PRINT_Y0, page_bottom=PRINT_Y1)
                     bounds.append((upper, lower))
 
                 # Mark geometry overlapping any caption band to prevent duplicate fallbacks
@@ -689,17 +707,23 @@ class CambridgeVisualExtractor:
                     for gi, (kind, r) in enumerate(all_geo):
                         if claimed[gi]:
                             continue
-                        if r.y0 >= upper - 1 and r.y1 <= lower + 1:
-                            if nearest_caption_idx(r.x0 + r.width / 2) == ci:
-                                claimed_boxes.append(r)
-                                claimed[gi] = True
+                        overlap_y0 = max(r.y0, upper)
+                        overlap_y1 = min(r.y1, lower)
+                        if overlap_y1 > overlap_y0:
+                            overlap_h = overlap_y1 - overlap_y0
+                            # Major vertical overlap or enclosed in band
+                            if overlap_h / max(r.height, 1.0) >= 0.25 or (r.y0 >= upper - 8 and r.y1 <= lower + 8):
+                                if nearest_caption_idx(r.x0 + r.width / 2) == ci:
+                                    clipped = r & fitz.Rect(PRINT_X0, upper - 5, PRINT_X1, lower + 5)
+                                    claimed_boxes.append(clipped)
+                                    claimed[gi] = True
 
                     for li, ln in enumerate(lines):
                         if li in claimed_lines:
                             continue
                         if (
-                            ln.bbox.y0 >= upper - 1
-                            and ln.bbox.y1 <= lower + 1
+                            ln.bbox.y0 >= upper - 2
+                            and ln.bbox.y1 <= lower + 2
                             and not self.caption_pattern.match(ln.text.strip())
                         ):
                             if nearest_caption_idx(ln.bbox.x0 + ln.width / 2) == ci:
@@ -733,12 +757,18 @@ class CambridgeVisualExtractor:
                     manifest.append(entry)
                     logger.info(f"  Extracted: {fname} (Page {pno + 1}, Q{qnum}, {cap['label']})")
 
-            # Fallback: unclaimed geometry with substantial 2-D footprint
-            if last_seen_question is not None:
-                for gi, (kind, r) in enumerate(all_geo):
-                    if claimed[gi] or overlaps_any_caption[gi]:
+            # Fallback: unclaimed geometry with substantial 2-D footprint (skip cover page pno == 0)
+            if pno > 0 and last_seen_question is not None:
+                unclaimed_vectors = [
+                    r for gi, (kind, r) in enumerate(all_geo)
+                    if not claimed[gi] and not overlaps_any_caption[gi] and kind == "vector"
+                ]
+                clustered_fallbacks = self.cluster_rects(unclaimed_vectors)
+                for r in clustered_fallbacks:
+                    # Must be strictly within printable bounds and substantial
+                    if r.x0 < PRINT_X0 or r.x1 > PRINT_X1 or r.y0 < PRINT_Y0 or r.y1 > PRINT_Y1:
                         continue
-                    if r.get_area() < 8000 or min(r.width, r.height) < 15:
+                    if r.get_area() < 8000 or min(r.width, r.height) < 30.0:
                         continue
 
                     qnum = None
@@ -748,30 +778,12 @@ class CambridgeVisualExtractor:
                     if qnum is None:
                         qnum = last_seen_question
 
-                    clip = fitz.Rect(
-                        r.x0 - self.pad,
-                        r.y0 - self.pad,
-                        r.x1 + self.pad,
-                        r.y1 + self.pad,
-                    ) & page.rect
-
+                    clip = (r + (-self.pad, -self.pad, self.pad, self.pad)) & page.rect
                     pix = page.get_pixmap(clip=clip, dpi=self.dpi)
+                    if self._is_blank_image(pix):
+                        continue
 
-                    # For fallback raster images only: filter out blank or
-                    # PapaCambridge-watermarked images before they are saved.
-                    if kind == "raster":
-                        if self._is_blank_image(pix):
-                            logger.debug(f"  Skipped blank raster fallback (Page {pno + 1}, gi={gi})")
-                            continue
-                        # Look up the xref for this raster's source image and
-                        # check whether the raw embedded XObject is the dark
-                        # ribbon watermark PapaCambridge stamps on its PDFs.
-                        xref = raster_xref_map.get(tuple(float(v) for v in r))
-                        if xref is not None and self._is_papacambridge_ribbon(doc, xref):
-                            logger.debug(f"  Skipped PapaCambridge ribbon watermark (Page {pno + 1}, gi={gi})")
-                            continue
-
-                    fname = f"p{pno + 1}_q{qnum}_fallback_{kind}_{gi}.png"
+                    fname = f"p{pno + 1}_q{qnum}_fallback_vector_{len(manifest) + 1}.png"
                     save_path = output_dir / fname
                     pix.save(str(save_path))
 
