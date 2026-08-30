@@ -221,6 +221,7 @@ CLASSIFICATION INSTRUCTIONS:
                 messages=[{"role": "user", "content": prompt}],
                 response_format=ClassificationContainer,
                 temperature=0.1,
+                max_tokens=8192,
             )
             parsed_response = completion.choices[0].message.parsed
             classifications = parsed_response.classifications if hasattr(parsed_response, "classifications") else []
@@ -233,6 +234,7 @@ CLASSIFICATION INSTRUCTIONS:
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.1,
+                max_tokens=8192,
             )
             raw_text = response.choices[0].message.content
             if not raw_text or not raw_text.strip():
