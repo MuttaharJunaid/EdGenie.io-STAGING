@@ -36,6 +36,8 @@ class QuotaExceededError(Exception):
     """Raised when LLM API resource/quota limits are exhausted (HTTP 429 / RESOURCE_EXHAUSTED)."""
     pass
 
+logger = logging.getLogger(__name__)
+
 
 # ── Classification-only output schema ─────────────────────────────────────────
 
