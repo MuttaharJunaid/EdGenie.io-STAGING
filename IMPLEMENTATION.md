@@ -11,14 +11,15 @@
 1. [Product Overview](#1-product-overview)
 2. [Architecture Overview](#2-architecture-overview)
 3. [Project Structure](#3-project-structure)
-4. [Stage 1 — Scraper (Non-Agentic)](#4-stage-1--scraper-non-agentic)
-5. [Stage 2 — Text Extraction & Question Parser](#5-stage-2--text-extraction--question-parser)
-6. [Stage 3 — Cambridge Visual Extractor (Non-Agentic)](#6-stage-3--cambridge-visual-extractor-non-agentic)
-7. [Stage 4 — MongoDB Ingestion & Firebase Asset Storage](#7-stage-4--mongodb-ingestion--firebase-asset-storage)
-8. [Stage 5 — Validation / QA Agent](#8-stage-5--validation--qa-agent)
-9. [CLI Command Reference & End-to-End Workflow](#9-cli-command-reference--end-to-end-workflow)
-10. [JSON Output Schemas (Canonical)](#10-json-output-schemas-canonical)
-11. [Change Log](#11-change-log)
+4. [Stage 0 — Syllabus Extraction & Management](#4-stage-0--syllabus-extraction--management)
+5. [Stage 1 — Scraper (Non-Agentic)](#5-stage-1--scraper-non-agentic)
+6. [Stage 2 — Text Extraction & Question Parser](#6-stage-2--text-extraction--question-parser)
+7. [Stage 3 — Cambridge Visual Extractor (Non-Agentic)](#7-stage-3--cambridge-visual-extractor-non-agentic)
+8. [Stage 4 — MongoDB Ingestion & Firebase Asset Storage](#8-stage-4--mongodb-ingestion--firebase-asset-storage)
+9. [Stage 5 — Validation / QA Agent](#9-stage-5--validation--qa-agent)
+10. [CLI Command Reference & End-to-End Workflow](#10-cli-command-reference--end-to-end-workflow)
+11. [JSON Output Schemas (Canonical)](#11-json-output-schemas-canonical)
+12. [Change Log](#12-change-log)
 
 ---
 
@@ -32,13 +33,14 @@ CAIE O-Level and AS/A-Level students need targeted past paper practice to achiev
 
 **EdGenie** is a platform designed for colleges and students to systematically master past papers. For every CAIE subject (Physics, Chemistry, Biology, Mathematics, Accounting, Business Studies, Economics, etc.), EdGenie:
 
-1. **Scrapes** past papers, mark schemes, and examiner reports from PapaCambridge across O-Level and AS/A-Level.
-2. **Extracts** every question into canonical JSON, classifies it against syllabus topics, and estimates difficulty and historical topic frequency.
-3. **Extracts visuals** (diagrams, graphs, tables, circuit diagrams, apparatus drawings) and binds them tightly to their parent question.
-4. **Hosts Media Assets** (all PDFs and visual PNGs) on **Firebase Storage** served via custom CDN prefix `https://assets.edgenie.io`.
-5. **Ingests** structured questions, answers, CDN media links, and vector embeddings into **MongoDB** (with MongoDB Vector Search).
-6. **Validates** quality via automated test suites and QA checks before publishing.
-7. **Serves** a question bank where students filter by **Topic × Difficulty × Frequency** to focus on high-yield, challenging questions.
+1. **Extracts Official Syllabi** directly from the Cambridge International website into 3-column CSV structures (`Unit,Topic,Subtopic`).
+2. **Scrapes** past papers, mark schemes, and examiner reports from PapaCambridge across O-Level and AS/A-Level.
+3. **Extracts** every question into canonical JSON using layout analysis, and classifies it against syllabus topics and difficulty levels via text-only LLM passes.
+4. **Extracts visuals** (diagrams, graphs, tables, circuit diagrams, apparatus drawings) and binds them tightly to their parent question.
+5. **Hosts Media Assets** (all PDFs and visual PNGs) on **Firebase Storage** served via custom CDN prefix `https://assets.edgenie.io`.
+6. **Ingests** structured questions, answers, CDN media links, and vector embeddings into **MongoDB** (with MongoDB Vector Search).
+7. **Validates** quality via automated test suites and QA checks before publishing.
+8. **Serves** a question bank where students filter by **Topic × Difficulty × Frequency** to focus on high-yield, challenging questions.
 
 ---
 
@@ -48,29 +50,36 @@ CAIE O-Level and AS/A-Level students need targeted past paper practice to achiev
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           EdGenie Pipeline                                  │
 │                                                                             │
-│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │ Stage 1  │───▶│   Stage 2    │───▶│   Stage 3    │───▶│   Stage 4    │  │
-│  │ Scraper  │    │ Text Extract │    │Visual Extract│    │  MongoDB     │  │
-│  │(Python)  │    │  + Classify  │    │(Non-Agentic) │    │ Ingestion    │  │
-│  └──────────┘    └──────────────┘    └──────────────┘    └──────┬───────┘  │
-│                                                                 │          │
-│                                                                 ▼          │
-│                                                          ┌──────────────┐  │
-│                                                          │ Firebase     │  │
-│                                                          │ Storage      │  │
-│                                                          │ CDN Assets   │  │
-│                                                          │(assets.edge- │  │
-│                                                          │  nie.io)     │  │
-│                                                          └──────┬───────┘  │
-│                                                                 │          │
-│                                                                 ▼          │
-│                                                          ┌──────────────┐  │
-│                                                          │   Stage 5    │  │
-│                                                          │  Validation  │  │
-│                                                          │  QA Agent    │  │
-│                                                          └──────┬───────┘  │
-│                                                                 │          │
-│                          ┌──────────────────────────────────────┘          │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌──────────────┐       │
+│  │ Stage 0  │───▶│ Stage 1  │───▶│   Stage 2    │───▶│   Stage 3    │       │
+│  │ Syllabus │    │ Scraper  │    │ Text Extract │    │Visual Extract│       │
+│  │ Crawler  │    │(Python)  │    │  + Classify  │    │(Non-Agentic) │       │
+│  └──────────┘    └──────────┘    └──────────────┘    └──────┬───────┘       │
+│                                                             │               │
+│                                                             ▼               │
+│                                                      ┌──────────────┐       │
+│                                                      │   Stage 4    │       │
+│                                                      │  MongoDB     │       │
+│                                                      │ Ingestion    │       │
+│                                                      └──────┬───────┘       │
+│                                                             │               │
+│                                                             ▼               │
+│                                                      ┌──────────────┐       │
+│                                                      │ Firebase     │       │
+│                                                      │ Storage      │       │
+│                                                      │ CDN Assets   │       │
+│                                                      │(assets.edge- │       │
+│                                                      │  nie.io)     │       │
+│                                                      └──────┬───────┘       │
+│                                                             │               │
+│                                                             ▼               │
+│                                                      ┌──────────────┐       │
+│                                                      │   Stage 5    │       │
+│                                                      │  Validation  │       │
+│                                                      │  QA Agent    │       │
+│                                                      └──────┬───────┘       │
+│                                                             │               │
+│                          ┌──────────────────────────────────┘               │
 │                          ▼                                                  │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                      MongoDB Database + Vector Index                  │  │
@@ -79,8 +88,8 @@ CAIE O-Level and AS/A-Level students need targeted past paper practice to achiev
 │                                  │                                          │
 │                                  ▼                                          │
 │  ┌────────────────┐     ┌────────────────┐                                 │
-│  │  FastAPI        │◀───│  Next.js        │                                │
-│  │  Backend        │───▶│  Frontend       │                                │
+│  │  FastAPI        │◀───│  Next.js        │                                 │
+│  │  Backend        │───▶│  Frontend       │                                 │
 │  └────────────────┘     └────────────────┘                                 │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -94,9 +103,19 @@ EdGenie/
 ├── IMPLEMENTATION.md                    # ◀ Single source of truth for architecture
 ├── README.md                            # Quickstart & command reference
 ├── pyproject.toml                       # Monorepo dependencies & CLI entrypoints
+├── syllabi/                             # Admin/Extracted 3-column syllabus CSVs
+│   ├── PHYSICS_5054.csv
+│   ├── ACCOUNTING_7707.csv
+│   └── ...
 ├── pipeline/                            # Core pipeline implementation
 │   ├── __init__.py
 │   ├── config.py                        # Pipeline configuration settings
+│   │
+│   ├── syllabus/                        # STAGE 0 — Official Syllabus Crawler & Builder
+│   │   ├── __init__.py
+│   │   ├── cli.py                       # `edgenie-syllabus` CLI (`build` & `list`)
+│   │   ├── crawler.py                   # Cambridge website crawler (Playwright + PyMuPDF)
+│   │   └── builder.py                   # Structured Gemini syllabus extractor & CSV builder
 │   │
 │   ├── scraper/                         # STAGE 1 — Scraper
 │   │   ├── __init__.py
@@ -108,15 +127,13 @@ EdGenie/
 │   │   ├── subject_registry.json        # 58 O-Level & 115 A-Level subject dictionary
 │   │   └── models.py                    # ScrapeTarget and ScrapeManifest Pydantic models
 │   │
-│   ├── extractor/                       # STAGE 2 — Text & Question Parser
+│   ├── extractor/                       # STAGE 2 — Text Extraction & Classification
 │   │   ├── __init__.py
 │   │   ├── cli.py                       # `edgenie-extractor` CLI (`process` & `process-dir`)
-│   │   ├── text_extractor.py            # PyMuPDF text block & line extraction
-│   │   ├── question_parser.py           # Structured question boundary parsing
+│   │   ├── pymupdf_extractor.py         # PyMuPDF layout analysis extractor (MCQ/Essay QP/MS)
+│   │   ├── classifier_agent.py          # Text-only Gemini/OpenRouter syllabus classifier
 │   │   ├── paper_type_detector.py       # Document type classification (QP, MS, MCQ, Essay)
-│   │   ├── topic_classifier.py          # LangChain agent for syllabus topic mapping
-│   │   ├── difficulty_analyzer.py       # Multi-signal difficulty estimator
-│   │   └── syllabus_loader.py           # Admin CSV syllabus loader
+│   │   └── syllabus_loader.py           # Syllabus CSV loader & auto-resolution
 │   │
 │   ├── visuals/                         # STAGE 3 — Cambridge Visual Extractor (Non-Agentic)
 │   │   ├── __init__.py
@@ -131,23 +148,46 @@ EdGenie/
 │   │   └── ingestor.py                  # MongoIngestor document builder & upsert service
 │   │
 │   ├── storage/                         # Local downloaded PDFs & output JSON/visuals
+│   │   ├── syllabi_pdfs/                # Downloaded full Cambridge syllabus PDFs
 │   │   └── {subject_code}/{year}/{session}/
 │   │
 │   └── tests/                           # Pytest unit & integration tests
 │       ├── test_scraper.py
 │       ├── test_extractor.py
-│       └── test_visuals.py
+│       ├── test_visuals.py
+│       └── test_syllabus.py
 ```
 
 ---
 
-## 4. Stage 1 — Scraper (Non-Agentic)
+## 4. Stage 0 — Syllabus Extraction & Management
 
 ### 4.1 Overview
 
+Stage 0 automatically extracts official Cambridge International syllabus documents directly from `cambridgeinternational.org` and compiles them into structured 3-column CSV files (`Unit,Topic,Subtopic`) saved in `syllabi/`.
+
+### 4.2 Cambridge Syllabus Crawler (`CambridgeSyllabusCrawler`)
+- **Automated Discovery**: Navigates Cambridge International qualifications directory for O-Level, IGCSE, or AS/A-Level by subject name/code.
+- **Section Parsing**: Locates the `Syllabuses` section on the subject page and enumerates all downloadable PDF links.
+- **Flyer/Update Filter**: Checks PDF page count via PyMuPDF in reverse chronological order; automatically skips update flyers / errata ($\le 3$ pages) until finding the full syllabus document ($> 3$ pages).
+- **Storage**: Caches downloaded syllabus PDFs in `pipeline/storage/syllabi_pdfs/`.
+
+### 4.3 Structured Syllabus Builder (`SyllabusBuilder`)
+- Sends the downloaded syllabus PDF to Gemini with structured output extraction (`SyllabusContainer` schema).
+- Outputs 3-column canonical CSVs to `syllabi/{SUBJECT}_{CODE}.csv` with columns:
+  - `Unit`: e.g. `"UNIT 1: Motion, forces and energy"`
+  - `Topic`: e.g. `"1.1 Physical quantities and measurement techniques"`
+  - `Subtopic`: Precise learning objective / knowledge requirement
+
+---
+
+## 5. Stage 1 — Scraper (Non-Agentic)
+
+### 5.1 Overview
+
 Stage 1 is a robust Python scraper that downloads past paper PDFs (Question Papers, Mark Schemes, Examiner Reports, Inserts) directly from PapaCambridge.
 
-### 4.2 Subject Registry & URL Formatting
+### 5.2 Subject Registry & URL Formatting
 
 - **Subject Registry (`subject_registry.json` & `subject_registry.py`)**: Stores exact subject slugs for 58 O-Level subjects and 115 AS/A-Level subjects. Converts user input (`mathematics`, `physics`, `accounting`, `4024`, `5054`) into exact PapaCambridge slugs (e.g., `mathematics-d-calculator-version-4024`).
 - **Year-Aware Session Formatting**:
@@ -158,7 +198,7 @@ Stage 1 is a robust Python scraper that downloads past paper PDFs (Question Pape
 
 ---
 
-## 5. Stage 2 — Text Extraction & Question Parser
+## 6. Stage 2 — Text Extraction & Question Parser
 
 Stage 2 parses downloaded PDF documents, detects paper categories, extracts structured questions with sub-parts and marks, maps answer keys, links visual figures, and classifies questions against syllabus topics and difficulty levels.
 
@@ -238,19 +278,19 @@ Stage 2 uses a hybrid pipeline designed to minimize LLM token costs, ensure dete
 
 ---
 
-## 6. Stage 3 — Cambridge Visual Extractor (Non-Agentic)
+## 7. Stage 3 — Cambridge Visual Extractor (Non-Agentic)
 
 Stage 3 (`CambridgeVisualExtractor`) extracts figures, diagrams, tables, circuit diagrams, and apparatus drawings from exam PDFs, tight-cropped around artwork with axis labels and annotations intact.
 
 ---
 
-## 7. Stage 4 — MongoDB Ingestion & Firebase Asset Storage
+## 8. Stage 4 — MongoDB Ingestion & Firebase Asset Storage
 
-### 7.1 Overview
+### 8.1 Overview
 
 Stage 4 hosts media assets on **Firebase Storage** served via custom CDN domain prefix **`https://assets.edgenie.io`** and ingests all structured questions, answers, visual manifests, and vector embeddings into **MongoDB**.
 
-### 7.2 Cloud Storage Integration (Firebase Storage)
+### 8.2 Cloud Storage Integration (Firebase Storage)
 
 All PDFs and extracted visual PNGs in `pipeline/storage` are uploaded to Firebase Storage. Public asset links use the domain prefix `https://assets.edgenie.io`:
 
@@ -261,7 +301,7 @@ All PDFs and extracted visual PNGs in `pipeline/storage` are uploaded to Firebas
   `https://assets.edgenie.io/visuals/{paper_code}/{filename}.png`  
   *Example*: `https://assets.edgenie.io/visuals/5054_s10_qp_41/p2_q1_Fig1_1.png`
 
-### 7.3 MongoDB Collections Architecture
+### 8.3 MongoDB Collections Architecture
 
 MongoDB replaces PostgreSQL as the primary database. The `edgenie` database contains **6 core collections**:
 
@@ -381,7 +421,7 @@ MongoDB replaces PostgreSQL as the primary database. The `edgenie` database cont
 
 ---
 
-## 8. Stage 5 — Validation / QA Agent
+## 9. Stage 5 — Validation / QA Agent
 
 Stage 5 runs automated validation checks prior to publishing:
 1. **Completeness Check**: Ensures all question numbers in a paper are present and sequential.
@@ -390,11 +430,14 @@ Stage 5 runs automated validation checks prior to publishing:
 
 ---
 
-## 9. CLI Command Reference & End-to-End Workflow
+## 10. CLI Command Reference & End-to-End Workflow
 
 ### End-to-End Workflow Example (Full Subject Pipeline)
 
 ```bash
+# 0. Build official syllabus CSV (Unit,Topic,Subtopic) from Cambridge International
+edgenie-syllabus build --level o-level --subject physics --code 5054
+
 # 1. Scrape O-Level Physics (5054) past papers (2010 to 2020)
 edgenie-scraper scrape \
     --level o-level \
@@ -417,9 +460,11 @@ edgenie-ingestor ingest-dir --dir pipeline/storage/5054
 
 | Stage | Command | Description |
 |---|---|---|
+| **Stage 0** | `edgenie-syllabus build` | Crawls Cambridge International, downloads full syllabus PDF, and builds 3-column CSV. |
+| **Stage 0** | `edgenie-syllabus list` | Lists all built syllabus CSV files in `syllabi/`. |
 | **Stage 1** | `edgenie-scraper scrape` | Downloads PDFs for given level, subject, code, and year range. |
-| **Stage 2** | `edgenie-extractor process` | Processes a single PDF into structured question JSON. |
-| **Stage 2** | `edgenie-extractor process-dir` | Processes all PDFs in a directory. |
+| **Stage 2** | `edgenie-extractor process` | Processes a single PDF into structured question JSON (layout extraction + Gemini classification). |
+| **Stage 2** | `edgenie-extractor process-dir` | Processes all PDFs in a directory sequentially. |
 | **Stage 3** | `edgenie-visuals extract` | Extracts diagrams from a single QP PDF and patches sibling JSON. |
 | **Stage 3** | `edgenie-visuals extract-dir` | Extracts diagrams from all QP PDFs in a directory. |
 | **Stage 4** | `edgenie-ingestor ingest-paper` | Syncs single paper assets to Firebase Storage (`assets.edgenie.io`) & MongoDB. |
@@ -428,7 +473,7 @@ edgenie-ingestor ingest-dir --dir pipeline/storage/5054
 
 ---
 
-## 10. JSON Output Schemas (Canonical)
+## 11. JSON Output Schemas (Canonical)
 
 ### Single Question Record (`Stage 2 Output`)
 
@@ -455,7 +500,7 @@ edgenie-ingestor ingest-dir --dir pipeline/storage/5054
 
 ---
 
-## 11. Change Log
+## 12. Change Log
 
 | Version | Date | Description |
 |---|---|---|
