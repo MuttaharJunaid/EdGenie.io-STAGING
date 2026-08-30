@@ -135,16 +135,67 @@ def process(
             console.print(f"[bold red]Error:[/bold red] Layout extractor returned no records.")
             raise typer.Exit(code=1)
 
+        # 4. Check for Stage 3 Visuals Manifest & Link Images
+        visuals_manifest_path = pdf.parent / pdf.stem / "manifest.json"
+        if visuals_manifest_path.exists():
+            try:
+                with open(visuals_manifest_path, "r", encoding="utf-8") as mf:
+                    manifest_data = json.load(mf)
+                q_to_files = {}
+                for entry in manifest_data:
+                    q = entry.get("question")
+                    if q is not None:
+                        q_to_files.setdefault(int(q), []).append(entry["relative_path"])
+                patched_count = 0
+                for record in parsed_records:
+                    q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
+                    m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
+                    if m and int(m.group(1)) in q_to_files:
+                        imgs = q_to_files[int(m.group(1))]
+                        record["image"] = imgs if len(imgs) > 1 else imgs[0]
+                        patched_count += 1
+                if patched_count:
+                    console.print(f"  [green]Linked {patched_count} visual figures from Stage 3 manifest.[/green]")
+            except Exception as e:
+                logger.debug(f"Could not auto-link visuals manifest: {e}")
+
+        # 5. Save extracted text JSON immediately before calling LLM
+        console.print(f"\n[bold blue]4. Saving Extracted JSON ({output_json_path.name})...[/bold blue]")
+        try:
+            with open(output_json_path, "w", encoding="utf-8") as f:
+                json.dump(parsed_records, f, indent=2, ensure_ascii=False)
+            console.print(f"[green]✓ Extracted text saved to: {output_json_path.name}[/green]")
+        except Exception as e:
+            console.print(f"[bold red]Failed to save initial JSON output:[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+        # 6. Run Gemini classification pass and update only classification fields
         if is_qp:
             if syllabus_text:
-                console.print(f"\n[bold green]4. Running Gemini Classification Pass (text-only, no PDF bytes)...[/bold green]")
+                console.print(f"\n[bold green]5. Running Gemini Classification Pass (text-only, using {output_json_path.name} + syllabus)...[/bold green]")
                 classifier = ClassifierAgent()
                 with console.status("[bold green]Classifying questions via Gemini..."):
                     classifications = classifier.classify(parsed_records, syllabus_text, category, meta_context)
+                
+                console.print(f"  [green]✓ Classified {len(classifications)} question(s).[/green]")
+                if classifications:
+                    sample_q = next(iter(classifications.values()))
+                    console.print(
+                        f"  [dim]Sample classification response ({sample_q.get('question_number')}):\n"
+                        f"    Unit        : {sample_q.get('Unit')}\n"
+                        f"    Topic       : {sample_q.get('Topic')} ({sample_q.get('Topic_name')})\n"
+                        f"    Sub-topics  : {', '.join(sample_q.get('Sub_topic', []))}\n"
+                        f"    Difficulty  : {sample_q.get('Difficulty_label')} ({sample_q.get('Difficulty_score')}/10)\n"
+                        f"    Command word: {', '.join(sample_q.get('Command_words', []))}[/dim]"
+                    )
+
                 parsed_records = classifier.merge(parsed_records, classifications)
-                console.print(f"  [green]Classified {len(classifications)} question(s).[/green]")
+                # Overwrite output JSON with updated classification fields
+                with open(output_json_path, "w", encoding="utf-8") as f:
+                    json.dump(parsed_records, f, indent=2, ensure_ascii=False)
+                console.print(f"  [green]✓ Updated classification fields in: {output_json_path.name}[/green]")
             else:
-                console.print(f"[yellow]No syllabus provided — skipping Gemini classification pass. Topic/Difficulty fields will be empty.[/yellow]")
+                console.print(f"[yellow]No syllabus provided — skipping Gemini classification pass. Topic/Difficulty fields remain empty.[/yellow]")
 
     else:
         # ── Standard strategy: full multimodal LLM extraction + classification ──
@@ -159,40 +210,39 @@ def process(
             console.print(f"[bold red]Error:[/bold red] Agentic parser returned no records.")
             raise typer.Exit(code=1)
 
-    # 5. Check for Stage 3 Visuals Manifest & Link Images
-    visuals_manifest_path = pdf.parent / pdf.stem / "manifest.json"
-    if visuals_manifest_path.exists():
-        try:
-            with open(visuals_manifest_path, "r", encoding="utf-8") as mf:
-                manifest_data = json.load(mf)
-            q_to_files = {}
-            for entry in manifest_data:
-                q = entry.get("question")
-                if q is not None:
-                    q_to_files.setdefault(int(q), []).append(entry["relative_path"])
-            patched_count = 0
-            for record in parsed_records:
-                q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
-                m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
-                if m and int(m.group(1)) in q_to_files:
-                    imgs = q_to_files[int(m.group(1))]
-                    record["image"] = imgs if len(imgs) > 1 else imgs[0]
-                    patched_count += 1
-            if patched_count:
-                console.print(f"  [green]Linked {patched_count} visual figures from Stage 3 manifest.[/green]")
-        except Exception as e:
-            logger.debug(f"Could not auto-link visuals manifest: {e}")
+        # Check for Stage 3 Visuals Manifest & Link Images
+        visuals_manifest_path = pdf.parent / pdf.stem / "manifest.json"
+        if visuals_manifest_path.exists():
+            try:
+                with open(visuals_manifest_path, "r", encoding="utf-8") as mf:
+                    manifest_data = json.load(mf)
+                q_to_files = {}
+                for entry in manifest_data:
+                    q = entry.get("question")
+                    if q is not None:
+                        q_to_files.setdefault(int(q), []).append(entry["relative_path"])
+                patched_count = 0
+                for record in parsed_records:
+                    q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
+                    m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
+                    if m and int(m.group(1)) in q_to_files:
+                        imgs = q_to_files[int(m.group(1))]
+                        record["image"] = imgs if len(imgs) > 1 else imgs[0]
+                        patched_count += 1
+                if patched_count:
+                    console.print(f"  [green]Linked {patched_count} visual figures from Stage 3 manifest.[/green]")
+            except Exception as e:
+                logger.debug(f"Could not auto-link visuals manifest: {e}")
 
-    # 6. Write to JSON
-    save_step = "5" if duplicate else "4"
-    console.print(f"\n[bold blue]{save_step}. Saving JSON Output...[/bold blue]")
-    try:
-        with open(output_json_path, "w") as f:
-            json.dump(parsed_records, f, indent=2)
-        console.print(f"[green]Saved JSON file successfully to: {output_json_path.name}[/green]")
-    except Exception as e:
-        console.print(f"[bold red]Failed to save JSON output:[/bold red] {e}")
-        raise typer.Exit(code=1)
+        # Save standard output JSON
+        console.print(f"\n[bold blue]4. Saving JSON Output...[/bold blue]")
+        try:
+            with open(output_json_path, "w", encoding="utf-8") as f:
+                json.dump(parsed_records, f, indent=2, ensure_ascii=False)
+            console.print(f"[green]Saved JSON file successfully to: {output_json_path.name}[/green]")
+        except Exception as e:
+            console.print(f"[bold red]Failed to save JSON output:[/bold red] {e}")
+            raise typer.Exit(code=1)
 
     # 7. Print Results summary table
     table = Table(title=f"Extraction Results: {pdf.name}")

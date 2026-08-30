@@ -3,8 +3,8 @@ pipeline/extractor/classifier_agent.py
 
 Duplicate Stage 2 — Classification-only Gemini pass with OpenRouter fallback.
 
-Takes the pre-extracted JSON records (schema skeletons produced by text extraction)
-along with the official Cambridge syllabus, and calls the LLM to fill in:
+Takes the pre-extracted JSON records (schema skeletons produced by PyMuPDF text extraction)
+along with the official Cambridge syllabus, and calls the LLM to fill in ONLY:
   - Unit
   - Topic
   - Topic_name
@@ -12,12 +12,17 @@ along with the official Cambridge syllabus, and calls the LLM to fill in:
   - Difficulty_score
   - Difficulty_label
   - Command_words
+
+No raw PDF bytes are sent, minimizing LLM token consumption.
 """
 
 import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
+
+import dotenv
+dotenv.load_dotenv()
 
 from google import genai
 from google.genai import types
@@ -58,8 +63,16 @@ class ClassifierAgent:
     """
 
     def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
-        self.provider = provider or settings.llm_provider
-        self.model_name = model_name or settings.llm_model
+        self.provider = provider or getattr(settings, "llm_provider", "google")
+        self.model_name = (
+            model_name
+            or os.getenv("GEMINI_MODEL")
+            or getattr(settings, "llm_model", None)
+            or "gemini-2.5-flash"
+        )
+        if not self.model_name:
+            self.model_name = "gemini-2.5-flash"
+
         self.api_key = os.getenv("GOOGLE_API_KEY")
 
         if self.provider == "google" and not self.api_key and os.getenv("OPENROUTER_API_KEY"):
@@ -80,17 +93,17 @@ class ClassifierAgent:
         is_mcq = category == PaperCategory.MCQ_QP
         paper_type = "Multiple-Choice (MCQ)" if is_mcq else "Essay / Structured Theory"
 
-        # Provide clean JSON of the extracted questions
+        # Provide clean JSON of the pre-extracted questions
         records_json = json.dumps(records, indent=2, ensure_ascii=False)
 
         prompt = f"""You are a senior educational examiner for O/A-Levels and a curriculum classification specialist.
 
 You are provided with:
-1. A JSON dataset of questions pre-extracted from a Cambridge {paper_type} past paper.
+1. A JSON file of questions pre-extracted from a Cambridge {paper_type} past paper.
 2. The official Cambridge syllabus for this subject.
 
-YOUR TASK:
-Take the provided question records and the syllabus, analyze each question's text and content, and fill in the topic classification, difficulty analysis, and command words for every single question.
+YOUR ROLE & WORKFLOW:
+The text extraction has already been completed and saved to the JSON file. Your work is to take in the pre-extracted JSON file and the syllabus, analyze each question's text and content, and fill in the topic classification, difficulty level, and command words for every question.
 
 METADATA CONTEXT:
 - Year: {year}
@@ -101,12 +114,12 @@ METADATA CONTEXT:
 OFFICIAL SYLLABUS:
 {syllabus_text}
 
-EXTRACTED QUESTION JSON:
+PRE-EXTRACTED QUESTION JSON:
 {records_json}
 
-INSTRUCTIONS FOR CLASSIFICATION & DIFFICULTY:
+CLASSIFICATION INSTRUCTIONS:
 1. QUESTION MAPPING:
-   For every question in the extracted JSON, find its `QuestionNumber` (e.g. "{session}/{variant}/{year}/Q1") and set it as `question_number`.
+   For every question in the input JSON, locate its `QuestionNumber` (e.g. "{session}/{variant}/{year}/Q1") and use it as `question_number`.
 
 2. TOPIC CLASSIFICATION (using the provided syllabus):
    - `Unit`: The Unit number from the syllabus (e.g. "1", "2").
@@ -115,14 +128,14 @@ INSTRUCTIONS FOR CLASSIFICATION & DIFFICULTY:
    - `Sub_topic`: A list of the specific sub-topic learning objectives tested by this question (e.g. ["Scalars and vectors", "Speed and velocity"]).
 
 3. DIFFICULTY ANALYSIS:
-   - `Difficulty_score`: Integer from 1 to 10 based on cognitive complexity, multi-step calculations, and depth.
+   - `Difficulty_score`: Integer from 1 to 10 based on cognitive depth, multi-step calculations, and concept complexity.
    - `Difficulty_label`: One of 'easy' (1-3), 'medium' (4-6), 'hard' (7-8), 'expert' (9-10).
-   - `Command_words`: List of command words identified in the question (e.g. ["calculate", "explain", "state", "describe", "determine"]).
+   - `Command_words`: List of command words identified in the question text (e.g. ["calculate", "explain", "state", "describe", "determine"]).
 
 4. OUTPUT CONSTRAINTS:
    - Output exactly ONE classification entry per question in the `classifications` array.
-   - Do NOT omit any questions. If there are 40 questions in the input, return 40 classifications.
-   - Output ONLY the requested schema fields (do not re-output question text or options).
+   - Do NOT omit any questions.
+   - Output ONLY the requested classification fields (do not modify or re-output question text or options).
 """
         return prompt
 
@@ -167,8 +180,11 @@ INSTRUCTIONS FOR CLASSIFICATION & DIFFICULTY:
     def _classify_with_gemini(self, prompt: str) -> Dict[str, Dict[str, Any]]:
         """Calls Gemini with structured output for question classification."""
         client = genai.Client(api_key=self.api_key)
+        model = self.model_name or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+        logger.info(f"Classifying questions via Gemini model: {model}")
+
         response = client.models.generate_content(
-            model=self.model_name,
+            model=model,
             contents=[prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
