@@ -1,8 +1,8 @@
 # EdGenie — Implementation Plan & Architecture Specification
 
-> **Version**: 2.3.0  
-> **Last Updated**: 2026-08-30  
-> **Status**: Active / Production Architecture (MongoDB + Firebase Storage Asset CDN + Decoupled Layout Extraction & Gemini Classification)
+> **Version**: 2.4.0  
+> **Last Updated**: 2026-09-01  
+> **Status**: Active / Production Architecture (PostgreSQL Relational + JSONB & Decoupled Firebase Storage Asset CDN)
 
 ---
 
@@ -140,12 +140,12 @@ EdGenie/
 │   │   ├── cli.py                       # `edgenie-visuals` CLI (`extract` & `extract-dir`)
 │   │   └── extractor.py                 # CambridgeVisualExtractor (PyMuPDF + Pillow)
 │   │
-│   ├── ingestion/                       # STAGE 4 — MongoDB Ingestion & Firebase Storage
+│   ├── ingestion/                       # STAGE 4 — PostgreSQL Ingestion & Firebase Storage
 │   │   ├── __init__.py
-│   │   ├── cli.py                       # `edgenie-ingestor` CLI (`ingest-paper`, `ingest-dir`, `sync-storage`)
+│   │   ├── cli.py                       # `edgenie-ingestor` CLI (`db-init`, `db-paper`, `db-dir`, `storage-paper`, `storage-dir`, `full-sync`)
 │   │   ├── firebase_storage.py          # Firebase Storage Asset Manager with `https://assets.edgenie.io` CDN prefix
-│   │   ├── mongo_client.py              # MongoDB client manager (6 core collections + indexes)
-│   │   └── ingestor.py                  # MongoIngestor document builder & upsert service
+│   │   ├── postgres_client.py           # PostgreSQL client manager (6 core tables, foreign keys + GIN indexes)
+│   │   └── postgres_ingestor.py         # PostgresIngestor document builder & atomic upsert service
 │   │
 │   ├── storage/                         # Local downloaded PDFs & output JSON/visuals
 │   │   ├── syllabi_pdfs/                # Downloaded full Cambridge syllabus PDFs
@@ -260,11 +260,13 @@ Stage 3 (`CambridgeVisualExtractor`) extracts figures, diagrams, tables, circuit
 
 ---
 
-## 8. Stage 4 — MongoDB Ingestion & Firebase Asset Storage
+## 8. Stage 4 — PostgreSQL Ingestion (Relational + JSONB) & Firebase Asset Storage
 
 ### 8.1 Overview
 
-Stage 4 hosts media assets on **Firebase Storage** served via custom CDN domain prefix **`https://assets.edgenie.io`** and ingests all structured questions, answers, visual manifests, and vector embeddings into **MongoDB**.
+Stage 4 decouples **Database Ingestion** from **Cloud Media Storage**:
+1. **PostgreSQL Database**: Ingests all structured questions, answers, visual manifests, syllabus topics, and pipeline run logs into a production-grade relational database with JSONB payload flexibility and GIN indexes.
+2. **Firebase Storage CDN**: Hosts all media assets (PDFs and extracted visual PNGs) served via custom CDN domain prefix **`https://assets.edgenie.io`**.
 
 ### 8.2 Cloud Storage Integration (Firebase Storage)
 
@@ -272,128 +274,96 @@ All PDFs and extracted visual PNGs in `pipeline/storage` are uploaded to Firebas
 
 - **PDF CDN Link Format**:
   `https://assets.edgenie.io/pdfs/{subject_code}/{year}/{session}/{filename}.pdf`  
-  *Example*: `https://assets.edgenie.io/pdfs/5054/2010/jun/5054_s10_qp_41.pdf`
+  *Example*: `https://assets.edgenie.io/pdfs/5054/2025/jun/5054_s25_qp_22.pdf`
 - **Visual Image CDN Link Format**:
   `https://assets.edgenie.io/visuals/{paper_code}/{filename}.png`  
-  *Example*: `https://assets.edgenie.io/visuals/5054_s10_qp_41/p2_q1_Fig1_1.png`
+  *Example*: `https://assets.edgenie.io/visuals/5054_s25_qp_22/p5_q3_Fig_3_1.png`
 
-### 8.3 MongoDB Collections Architecture
+### 8.3 PostgreSQL Database Architecture (Relational + JSONB)
 
-MongoDB replaces PostgreSQL as the primary database. The `edgenie` database contains **6 core collections**:
+PostgreSQL (with Relational Tables + JSONB columns) serves as EdGenie's core database. The `edgenie` database contains **6 core tables**:
 
-#### 1. `subjects` Collection
-```json
-{
-  "_id": "5054",
-  "subject_code": "5054",
-  "subject_name": "Physics",
-  "level": "o-level",
-  "syllabus_topics": [
-    {
-      "unit_number": "1",
-      "unit_name": "General Physics",
-      "topic_number": "1.1",
-      "topic_name": "Physical Quantities and Units"
-    }
-  ],
-  "updated_at": "2026-08-26T20:30:00Z"
-}
-```
+#### 1. `subjects` Table
+| Column | Type | Description |
+|---|---|---|
+| `subject_code` | `VARCHAR(10) PRIMARY KEY` | e.g. `'5054'` |
+| `subject_name` | `VARCHAR(100) NOT NULL` | e.g. `'Physics'` |
+| `level` | `VARCHAR(20) DEFAULT 'O-Level'` | `'O-Level'` or `'A-Level'` |
+| `syllabus_rules_count` | `INT DEFAULT 0` | Total learning objective rules |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | Timestamps |
 
-#### 2. `papers` Collection
-```json
-{
-  "_id": "5054_s10_qp_41",
-  "paper_code": "5054_s10_qp_41",
-  "subject_code": "5054",
-  "year": 2010,
-  "session": "jun",
-  "paper_number": 4,
-  "variant": 1,
-  "pdf_filename": "5054_s10_qp_41.pdf",
-  "pdf_cdn_url": "https://assets.edgenie.io/pdfs/5054/2010/jun/5054_s10_qp_41.pdf",
-  "question_count": 8,
-  "updated_at": "2026-08-26T20:30:00Z"
-}
-```
+#### 2. `papers` Table
+| Column | Type | Description |
+|---|---|---|
+| `paper_code` | `VARCHAR(50) PRIMARY KEY` | e.g. `'5054_s25_qp_22'` |
+| `subject_code` | `VARCHAR(10) REFERENCES subjects` | Foreign key with CASCADE |
+| `year` | `INT NOT NULL` | e.g. `2025` |
+| `session` | `VARCHAR(10) NOT NULL` | `'jun'`, `'nov'`, `'mar'` |
+| `variant` | `VARCHAR(10)` | e.g. `'22'` |
+| `paper_number` | `INT` | e.g. `2` |
+| `paper_type` | `VARCHAR(20) NOT NULL` | `'qp'`, `'ms'`, `'er'`, `'gt'` |
+| `category` | `VARCHAR(20) NOT NULL` | `'mcq_qp'`, `'essay_qp'`, `'mcq_ms'`, `'essay_ms'` |
+| `pdf_filename` | `VARCHAR(255)` | e.g. `'5054_s25_qp_22.pdf'` |
+| `pdf_cdn_url` | `TEXT` | `https://assets.edgenie.io/pdfs/...` |
+| `question_count` | `INT DEFAULT 0` | Total questions |
+| `metadata` | `JSONB DEFAULT '{}'` | Extensible metadata |
 
-#### 3. `questions` Collection (Primary Collection)
-```json
-{
-  "_id": "5054_s10_qp_41_Q1",
-  "question_key": "5054_s10_qp_41_Q1",
-  "paper_code": "5054_s10_qp_41",
-  "subject_code": "5054",
-  "year": 2010,
-  "session": "jun",
-  "paper_number": 4,
-  "variant": 1,
-  "question_number": 1,
-  "question_text": "Fig. 1.1 shows a measuring cylinder containing water...",
-  "marks": 3,
-  "topic_number": "1.2",
-  "topic_name": "Measurement of Physical Quantities",
-  "sub_topics": ["Measuring cylinder", "Volume measurement"],
-  "difficulty_score": 4,
-  "difficulty_label": "medium",
-  "command_words": ["calculate", "state"],
-  "image_filename": "p2_q1_Fig1_1.png",
-  "image_cdn_url": "https://assets.edgenie.io/visuals/5054_s10_qp_41/p2_q1_Fig1_1.png",
-  "answer": {
-    "text": "12.5 cm3 [1], reading at bottom of meniscus [1]",
-    "marks": 2
-  },
-  "embedding": [0.012, -0.045, 0.089],
-  "created_at": "2026-08-26T20:30:00Z"
-}
-```
+#### 3. `questions` Table (Primary Core Table)
+| Column | Type | Description |
+|---|---|---|
+| `question_key` | `VARCHAR(100) PRIMARY KEY` | e.g. `'5054_s25_qp_22_Q1'` |
+| `paper_code` | `VARCHAR(50) REFERENCES papers` | Foreign key with CASCADE |
+| `subject_code` | `VARCHAR(10) REFERENCES subjects` | Foreign key |
+| `year` / `session` / `variant` | `INT` / `VARCHAR` / `VARCHAR` | Partitionable metadata |
+| `question_number` | `INT NOT NULL` | e.g. `1` |
+| `question_number_formatted` | `VARCHAR(100)` | e.g. `'Jun/22/2025/Q1'` |
+| `question_text` | `TEXT NOT NULL` | Question body / intro |
+| `marks` | `INT DEFAULT 1` | Total question marks |
+| `unit` / `topic` / `topic_name` | `VARCHAR` | Syllabus mappings |
+| `sub_topics` | `JSONB DEFAULT '[]'` | Specific learning objective strings (Indexed with GIN) |
+| `difficulty_score` | `INT DEFAULT 0` | Cognitive depth (1–10) |
+| `difficulty_label` | `VARCHAR(20)` | `'easy'`, `'medium'`, `'hard'`, `'expert'` |
+| `command_words` | `JSONB DEFAULT '[]'` | e.g. `["calculate", "state"]` (Indexed with GIN) |
+| `options` | `JSONB` | For MCQs: `{"A": "...", "B": "...", "C": "...", "D": "..."}` |
+| `parts` | `JSONB` | For Essays: `[{"part_label": "(a)", "part_text": "...", "marks": 2, "image": null}]` |
+| `image_filename` | `VARCHAR(255)` | Local visual image filename |
+| `image_cdn_url` | `TEXT` | CDN image URL |
+| `metadata` | `JSONB DEFAULT '{}'` | Raw payloads & multi-image arrays |
 
-#### 4. `answers` Collection
-```json
-{
-  "_id": "5054_s10_qp_41_Q1_ans",
-  "question_id": "5054_s10_qp_41_Q1",
-  "paper_code": "5054_s10_ms_41",
-  "subject_code": "5054",
-  "year": 2010,
-  "session": "jun",
-  "question_number": 1,
-  "answer_text": "12.5 cm3 [1], reading at bottom of meniscus [1]",
-  "updated_at": "2026-08-26T20:30:00Z"
-}
-```
+#### 4. `answers` Table
+| Column | Type | Description |
+|---|---|---|
+| `id` | `VARCHAR(100) PRIMARY KEY` | e.g. `'5054_s25_ms_22_Q1'` |
+| `question_key` | `VARCHAR(100)` | Logical link to `questions(question_key)` |
+| `paper_code` | `VARCHAR(50) REFERENCES papers` | e.g. `'5054_s25_ms_22'` |
+| `subject_code` / `year` / `session` | Relational fields | Filter metadata |
+| `question_number` | `INT NOT NULL` | e.g. `1` |
+| `answer_text` | `TEXT` | Full answer or MCQ correct letter |
+| `parts` | `JSONB` | Essay MS parts: `[{"part_label": "(a)", "part_answer": "..."}]` (GIN Indexed) |
+| `image_filename` / `image_cdn_url` | `VARCHAR` / `TEXT` | Visual image references |
 
-#### 5. `visuals` Collection
-```json
-{
-  "_id": "5054_s10_qp_41_p2_q1_Fig1_1.png",
-  "paper_code": "5054_s10_qp_41",
-  "subject_code": "5054",
-  "year": 2010,
-  "session": "jun",
-  "question_number": 1,
-  "caption": "Fig. 1.1",
-  "page": 2,
-  "bbox": [170.3, 137.7, 386.6, 314.1],
-  "filename": "p2_q1_Fig1_1.png",
-  "cdn_url": "https://assets.edgenie.io/visuals/5054_s10_qp_41/p2_q1_Fig1_1.png"
-}
-```
+#### 5. `visuals` Table
+| Column | Type | Description |
+|---|---|---|
+| `id` | `VARCHAR(255) PRIMARY KEY` | e.g. `'5054_s25_qp_22_p5_q3_Fig_3_1.png'` |
+| `paper_code` | `VARCHAR(50) REFERENCES papers` | Parent paper reference |
+| `question_number` | `INT` | Associated question number |
+| `caption` | `VARCHAR(100)` | e.g. `'Fig. 3.1'` or `'Table 1.1'` |
+| `page` | `INT` | Page number in PDF |
+| `bbox` | `JSONB` | Coordinates `[x0, y0, x1, y1]` |
+| `filename` | `VARCHAR(255)` | Image filename |
+| `relative_path` | `VARCHAR(255)` | Path inside paper visuals dir |
+| `cdn_url` | `TEXT` | `https://assets.edgenie.io/visuals/...` |
 
-#### 6. `pipeline_runs` Collection
-```json
-{
-  "_id": "run_5054_2010_jun",
-  "subject_code": "5054",
-  "year": 2010,
-  "session": "jun",
-  "status": "completed",
-  "processed_papers": 4,
-  "ingested_questions": 40,
-  "uploaded_assets": 12,
-  "completed_at": "2026-08-26T20:30:00Z"
-}
-```
+#### 6. `pipeline_runs` Table
+| Column | Type | Description |
+|---|---|---|
+| `id` | `BIGSERIAL PRIMARY KEY` | Run ID |
+| `stage` | `VARCHAR(50)` | e.g. `'stage_4_ingestion'` |
+| `subject_code` / `year` | Relational fields | Execution scope |
+| `status` | `VARCHAR(20)` | `'completed'`, `'failed'` |
+| `details` | `JSONB` | Execution details and metrics |
+| `started_at` / `completed_at` | `TIMESTAMPTZ` | Timestamps |
 
 ---
 
@@ -431,8 +401,14 @@ edgenie-extractor classify-dir --dir pipeline/storage/5054
 # 3. Extract visual diagrams and patch question JSON files
 edgenie-visuals extract-dir --dir pipeline/storage/5054
 
-# 4. Sync assets to Firebase Storage (assets.edgenie.io) and ingest documents into MongoDB
-edgenie-ingestor ingest-dir --dir pipeline/storage/5054
+# 3. Extract visual diagrams and patch question JSON files
+edgenie-visuals extract-dir --dir pipeline/storage/5054
+
+# 4. Ingest structured JSONs into PostgreSQL database
+edgenie-ingestor db-dir --dir pipeline/storage/5054
+
+# 5. (Optional) Sync assets to Firebase Storage CDN (assets.edgenie.io)
+edgenie-ingestor storage-dir --dir pipeline/storage/5054
 ```
 
 ### CLI Command Reference
@@ -450,9 +426,13 @@ edgenie-ingestor ingest-dir --dir pipeline/storage/5054
 | **Stage 2** | `edgenie-extractor process-dir` | Combined pipeline: extracts layout text and classifies all PDFs in a directory. |
 | **Stage 3** | `edgenie-visuals extract` | Extracts diagrams from a single QP PDF and patches sibling JSON. |
 | **Stage 3** | `edgenie-visuals extract-dir` | Extracts diagrams from all QP PDFs in a directory. |
-| **Stage 4** | `edgenie-ingestor ingest-paper` | Syncs single paper assets to Firebase Storage (`assets.edgenie.io`) & MongoDB. |
-| **Stage 4** | `edgenie-ingestor ingest-dir` | Syncs full directory assets to Firebase Storage & MongoDB. |
-| **Stage 4** | `edgenie-ingestor sync-storage` | Uploads local storage directory PDFs & images to Firebase Storage. |
+| **Stage 4** | `edgenie-ingestor db-init` | Initializes PostgreSQL tables, foreign key constraints, and B-Tree/GIN indexes. |
+| **Stage 4** | `edgenie-ingestor db-paper` | Ingests a single paper JSON and its visual manifest into PostgreSQL. |
+| **Stage 4** | `edgenie-ingestor db-dir` | Ingests all paper JSONs inside a directory tree into PostgreSQL. |
+| **Stage 4** | `edgenie-ingestor db-stats` | Displays current record counts across all PostgreSQL tables. |
+| **Stage 4** | `edgenie-ingestor storage-paper` | Uploads single paper PDF & visuals to Firebase Storage (`assets.edgenie.io`). |
+| **Stage 4** | `edgenie-ingestor storage-dir` | Uploads local storage directory PDFs & images to Firebase Storage. |
+| **Stage 4** | `edgenie-ingestor full-sync` | Automated step: performs both Firebase asset sync and PostgreSQL DB ingestion. |
 
 ---
 
@@ -493,3 +473,4 @@ edgenie-ingestor ingest-dir --dir pipeline/storage/5054
 | **2.1.0** | 2026-08-26 | **Database & Cloud Storage Configuration**: Replaced PostgreSQL with **MongoDB** (6 core collections: `subjects`, `papers`, `questions`, `answers`, `visuals`, `pipeline_runs`). Integrated **Firebase Storage** asset hosting with custom CDN domain prefix **`https://assets.edgenie.io`** for all PDFs and visual images. Added `edgenie-ingestor` CLI commands. |
 | **2.2.0** | 2026-08-30 | **Hybrid Stage 2 Text Extraction**: Fully replaced multimodal LLM text extraction with **PyMuPDF Layout Extractor** + **ClassifierAgent**. Zero LLM tokens used for text extraction; JSON saved immediately before classification; text-only Gemini pass (with OpenRouter fallback) populates syllabus topic classification and difficulty analysis. Auto-resolves syllabus paths and excludes `_er_`, `_gt_`, `_ir_`, `_ci_` files. |
 | **2.3.0** | 2026-08-30 | **Decoupled Text Extraction & AI Classification**: Separated Stage 2 into distinct CLI commands (`extract`, `extract-dir`, `classify`, `classify-dir`, `process`, `process-dir`). Added visual row clustering ($y_0 \le 2.0\text{ pt}$) to fix same-row text scrambling, 8% text density filter for vector answer tables, and Option A prefix disambiguation. Synchronized all documentation across README.md and IMPLEMENTATION.md. |
+| **2.4.0** | 2026-09-01 | **PostgreSQL (Relational + JSONB) Architecture & Decoupled Ingestion**: Transitioned primary database from MongoDB to **PostgreSQL (Relational + JSONB)** with `psycopg 3` driver. Decoupled database ingestion (`db-init`, `db-paper`, `db-dir`, `db-stats`) from Firebase Storage asset sync (`storage-paper`, `storage-dir`, `full-sync`). Enabled GIN indexing on `sub_topics`, `command_words`, `options`, `parts` JSONB fields. Fixed scissor-aware PDF vector clipping for Cambridge visual artwork. |

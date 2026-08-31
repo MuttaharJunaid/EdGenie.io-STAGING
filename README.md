@@ -28,19 +28,41 @@ GOOGLE_API_KEY=your_gemini_api_key_here
 # OpenRouter API Key (Automatic fallback)
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 
-# MongoDB Connection
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB_NAME=edgenie
+# PostgreSQL Connection (Relational + JSONB)
+POSTGRES_URI=postgresql://localhost:5432/edgenie
 
-# Firebase Storage CDN (Stage 4)
-CDN_BASE_URL=https://assets.edgenie.io
+# Firebase Storage CDN (Stage 4 Media Hosting)
+CDN_DOMAIN_PREFIX=https://assets.edgenie.io
+GOOGLE_APPLICATION_CREDENTIALS=firebase-key.json
+FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
 ```
+
+---
+
+## PostgreSQL Setup Guide (Relational + JSONB)
+
+EdGenie uses **PostgreSQL 15+** with relational tables for strict indexing / foreign keys and **JSONB** columns for sub-topics, command words, options, and structured question parts.
+
+### 1. Local Database Setup (macOS / Homebrew)
+```bash
+# Start PostgreSQL service
+brew services start postgresql@15
+
+# Create edgenie database (if not already existing)
+createdb edgenie
+```
+
+### 2. Initialize EdGenie Tables & Indexes
+```bash
+edgenie-ingestor db-init
+```
+This automatically sets up the 6 relational tables (`subjects`, `papers`, `questions`, `answers`, `visuals`, `pipeline_runs`) along with GIN indexes on JSONB fields.
 
 ---
 
 ## End-to-End Subject Workflow (Start to Finish)
 
-To run the complete pipeline — **Stage 0 (Syllabus) → Stage 1 (Scraping) → Stage 2 (Text Extraction & Classification) → Stage 3 (Visual Diagram Extraction) → Stage 4 (Cloud & Database Ingestion)** — follow these commands.
+To run the complete pipeline — **Stage 0 (Syllabus) → Stage 1 (Scraping) → Stage 2 (Text Extraction & Classification) → Stage 3 (Visual Diagram Extraction) → Stage 4 (PostgreSQL DB Ingestion & Firebase Asset Storage)** — follow these commands.
 
 ### Example: Complete Pipeline for O-Level Physics (5054)
 
@@ -86,10 +108,19 @@ edgenie-extractor process-dir --dir pipeline/storage/5054
 edgenie-visuals extract-dir --dir pipeline/storage/5054
 ```
 
-#### Stage 4: Cloud Storage Sync & Database Ingestion
+#### Stage 4: PostgreSQL Database Ingestion & Asset Sync
+
+Stage 4 is **decoupled** — you can ingest records directly into PostgreSQL without requiring Firebase cloud credentials:
+
 ```bash
-# Upload all PDFs and visual images to Firebase Storage (assets.edgenie.io) and ingest documents into MongoDB
-edgenie-ingestor ingest-dir --dir pipeline/storage/5054
+# Ingest all structured JSON questions, answers, and visual manifests into PostgreSQL
+edgenie-ingestor db-dir --dir pipeline/storage/5054
+
+# View current database counts across all tables
+edgenie-ingestor db-stats
+
+# (Optional) Upload all PDFs and visual images to Firebase Storage (assets.edgenie.io)
+edgenie-ingestor storage-dir --dir pipeline/storage/5054
 ```
 
 ---
@@ -111,8 +142,11 @@ edgenie-extractor process --pdf pipeline/storage/5054/2018/nov/5054_w18_qp_41.pd
 # Stage 3: Extract visual diagrams from a single paper
 edgenie-visuals extract --pdf pipeline/storage/5054/2018/nov/5054_w18_qp_41.pdf
 
-# Stage 4: Ingest a single paper's JSON and assets to Firebase CDN & MongoDB
-edgenie-ingestor ingest-paper --json pipeline/storage/5054/2018/nov/5054_w18_qp_41.json
+# Stage 4: Ingest a single paper's JSON and visual manifest into PostgreSQL
+edgenie-ingestor db-paper --json pipeline/storage/5054/2018/nov/5054_w18_qp_41.json
+
+# Stage 4: (Optional) Upload a single paper's PDF and visuals to Firebase Storage
+edgenie-ingestor storage-paper --pdf pipeline/storage/5054/2018/nov/5054_w18_qp_41.pdf
 ```
 
 ---
@@ -140,7 +174,12 @@ edgenie-ingestor ingest-paper --json pipeline/storage/5054/2018/nov/5054_w18_qp_
 - **Extract single paper diagrams**: `edgenie-visuals extract --pdf <path_to_pdf>`
 - **Extract directory diagrams**: `edgenie-visuals extract-dir --dir <path_to_dir>`
 
-### 5. Cloud & DB Ingestor (`edgenie-ingestor`)
-- **Ingest single paper**: `edgenie-ingestor ingest-paper --json <path_to_json>`
-- **Ingest full directory**: `edgenie-ingestor ingest-dir --dir <path_to_dir>`
-- **Sync storage assets to Firebase CDN**: `edgenie-ingestor sync-storage --dir pipeline/storage`
+### 5. PostgreSQL & Firebase Storage Ingestor (`edgenie-ingestor`)
+- **Initialize PostgreSQL schema**: `edgenie-ingestor db-init`
+- **Ingest single paper into PostgreSQL**: `edgenie-ingestor db-paper --json <path_to_json>`
+- **Ingest full directory into PostgreSQL**: `edgenie-ingestor db-dir --dir <path_to_dir>`
+- **Check PostgreSQL table record counts**: `edgenie-ingestor db-stats`
+- **Upload single paper assets to Firebase CDN**: `edgenie-ingestor storage-paper --pdf <path_to_pdf>`
+- **Upload directory assets to Firebase CDN**: `edgenie-ingestor storage-dir --dir <path_to_dir>`
+- **Combined asset upload & DB ingestion**: `edgenie-ingestor full-sync --dir <path_to_dir>`
+
