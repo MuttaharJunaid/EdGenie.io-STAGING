@@ -638,11 +638,28 @@ class CambridgeVisualExtractor:
             PRINT_X0, PRINT_X1 = 35.0, 540.0
             PRINT_Y0, PRINT_Y1 = 45.0, 785.0
 
-            # 1. Filter printable drawings (drop margin text, vertical stripes, crop marks)
+            # 1. Filter printable drawings (drop margin text, vertical stripes, crop marks).
+            #    Use extended=True so PyMuPDF interleaves {"type": "clip"} entries that carry
+            #    the active scissor rect. We intersect every path's raw rect with the scissor
+            #    before clustering — without this, bezier control points outside the clipped
+            #    region inflate rects to negative/far-out coordinates, causing them to merge
+            #    with the margin strip and get silently dropped (root cause of Fig 3.1 bug).
             filtered_drawings = []
-            for d in page.get_drawings():
-                r = fitz.Rect(d["rect"]) & page.rect
-                if max(r.width, r.height) <= self.min_stroke_len:
+            current_scissor: Optional[fitz.Rect] = None
+            for d in page.get_drawings(extended=True):
+                if d.get("type") == "clip":
+                    scissor = d.get("scissor")
+                    current_scissor = fitz.Rect(scissor) if scissor else None
+                    continue
+                raw_r = d.get("rect")
+                if raw_r is None:
+                    continue
+                r = fitz.Rect(raw_r)
+                # Clip to the active scissor first (before intersecting with page.rect)
+                if current_scissor is not None and not current_scissor.is_empty:
+                    r = r & current_scissor
+                r = r & page.rect
+                if r.is_empty or max(r.width, r.height) <= self.min_stroke_len:
                     continue
                 # Left / right margin gutter (e.g. DO NOT WRITE IN THIS MARGIN sidebar)
                 if r.x1 <= PRINT_X0 or r.x0 >= PRINT_X1:
