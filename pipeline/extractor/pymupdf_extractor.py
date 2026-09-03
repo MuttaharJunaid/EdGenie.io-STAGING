@@ -316,7 +316,16 @@ class PyMuPDFExtractor:
             return results
 
         else:
-            # Legacy margin layout (e.g. 2010-2015 mark schemes)
+            # Legacy margin layout (e.g. 2010-2015 mark schemes).
+            #
+            # In older Cambridge PDFs, single-digit questions (Q1-Q9) have the number
+            # as a standalone span in the left margin, then content in adjacent spans.
+            # BUT two-digit questions (Q10, Q11...) are rendered as ONE fused span:
+            #   e.g. "10 (a) (master cylinder creates) pressure in brake fluid..."
+            # The old code only matched bare digit tokens, so Q10+ were silently dropped.
+            # Fix: also detect the "NN <content>" pattern and split off the inline prefix.
+            LEGACY_Q_INLINE = re.compile(r"^(\d{1,2})\s+(.+)$")
+
             questions = {}
             current_q = None
 
@@ -338,20 +347,42 @@ class PyMuPDFExtractor:
                     row_lines = sorted(rows[y], key=lambda l: l.bbox.x0)
                     q_anchor = None
                     content_lines = []
+                    inline_prefix = None  # text fused onto the same span as the question number
+
                     for ln in row_lines:
                         t = ln.text.strip()
-                        if ln.bbox.x0 < 65 and re.match(r"^\d{1,2}$", t):
-                            q_val = int(t)
-                            if 1 <= q_val <= 30:
-                                q_anchor = q_val
-                        elif not re.match(r"^\s*[BCAM]\d\s*$", t, re.IGNORECASE):
-                            content_lines.append(ln)
+                        if re.match(r"^\s*[BCAM]\d\s*$", t, re.IGNORECASE):
+                            # Mark-notation token (B1, C1, A1, M1...) — skip entirely
+                            continue
+                        if ln.bbox.x0 < 65:
+                            if re.match(r"^\d{1,2}$", t):
+                                # Standalone question number (Q1-Q9 typical layout)
+                                q_val = int(t)
+                                if 1 <= q_val <= 30:
+                                    q_anchor = q_val
+                                    continue
+                            else:
+                                # Fused "10 (a) content..." pattern for Q10+
+                                m = LEGACY_Q_INLINE.match(t)
+                                if m:
+                                    q_val = int(m.group(1))
+                                    if 1 <= q_val <= 30:
+                                        q_anchor = q_val
+                                        inline_prefix = m.group(2).strip()
+                                        continue
+                        content_lines.append(ln)
 
                     if q_anchor is not None:
                         current_q = q_anchor
 
                     if current_q is not None:
-                        row_text = " ".join(ln.text.strip() for ln in content_lines).strip()
+                        # Prepend any text that was fused onto the question-number span
+                        parts_text = []
+                        if inline_prefix:
+                            parts_text.append(inline_prefix)
+                            inline_prefix = None
+                        parts_text += [ln.text.strip() for ln in content_lines]
+                        row_text = " ".join(parts_text).strip()
                         row_text = DOT_LEADER.sub("", row_text).strip()
                         if row_text and row_text not in ["Section A", "Section B"]:
                             questions.setdefault(current_q, []).append(row_text)
