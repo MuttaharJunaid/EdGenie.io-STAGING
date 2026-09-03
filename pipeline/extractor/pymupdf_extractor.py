@@ -15,7 +15,6 @@ Supported paper categories
   ESSAY_MS — Answer text + sub-part answers (handles modern table mark schemes & legacy layouts)
 """
 
-import json
 import re
 import logging
 from pathlib import Path
@@ -86,36 +85,7 @@ class PyMuPDFExtractor:
 
     # ── Shared: build per-page data ────────────────────────────────────────
 
-    def _build_page_data(self, doc: fitz.Document, mcq: bool = False, manifest_path: Optional[Path] = None) -> List:
-        """Build per-page line/anchor/band data.
-
-        For MCQ papers the standard caption-based band detection yields nothing
-        (MCQ papers never contain "Fig. N.M" / "Table N.M" captions).  When a
-        ``manifest_path`` is supplied the visual extractor's manifest.json is read
-        to build per-page suppression bands from the real image bounding-boxes,
-        so text labels embedded inside diagrams (e.g. "15 N", "30 cm", "trapdoor")
-        are excluded from the extracted question text.
-        """
-        # Load per-page visual bands from manifest when available (MCQ use-case)
-        manifest_bands: Dict[int, List[Tuple[float, float]]] = {}
-        if mcq and manifest_path is not None:
-            mpath = Path(manifest_path)
-            if mpath.exists():
-                try:
-                    with open(mpath, "r", encoding="utf-8") as mf:
-                        manifest_data = json.load(mf)
-                    for entry in manifest_data:
-                        pno = entry.get("page")   # 1-indexed in manifest
-                        bbox = entry.get("bbox")
-                        if pno is not None and bbox is not None and len(bbox) == 4:
-                            # Convert to 0-indexed page number; store (y0, y1) band
-                            page_idx = int(pno) - 1
-                            manifest_bands.setdefault(page_idx, []).append(
-                                (float(bbox[1]), float(bbox[3]))
-                            )
-                except Exception as exc:
-                    logger.debug(f"_build_page_data: could not load manifest bands: {exc}")
-
+    def _build_page_data(self, doc: fitz.Document, mcq: bool = False) -> List:
         page_data = []
         for pno in range(len(doc)):
             page = doc[pno]
@@ -133,9 +103,6 @@ class PyMuPDFExtractor:
             for cap in captions:
                 upper, lower = self._cve.get_caption_bounds(cap, lines, page_top=40.0, page_bottom=page.rect.y1 - 20)
                 bands.append((upper, lower))
-            # Merge manifest-derived visual bands (MCQ papers have no captions)
-            if pno in manifest_bands:
-                bands.extend(manifest_bands[pno])
             page_data.append({"lines": lines, "anchors": anchors, "bands": bands})
         return page_data
 
@@ -461,22 +428,7 @@ class PyMuPDFExtractor:
 
     def _extract_mcq_qp(self, pdf_path: Path, meta: Dict[str, Any]) -> List[Dict[str, Any]]:
         doc = fitz.open(str(pdf_path))
-
-        # Pass the Stage 3 visual manifest so diagram-label text is suppressed via bands.
-        manifest_path = pdf_path.parent / pdf_path.stem / "manifest.json"
-        manifest_q_set = set()
-        if manifest_path.exists():
-            try:
-                with open(manifest_path, "r", encoding="utf-8") as mf:
-                    manifest_data = json.load(mf)
-                for entry in manifest_data:
-                    q_val = entry.get("question")
-                    if q_val is not None:
-                        manifest_q_set.add(int(q_val))
-            except Exception as exc:
-                logger.debug(f"Could not load manifest question set: {exc}")
-
-        page_data = self._build_page_data(doc, mcq=True, manifest_path=manifest_path)
+        page_data = self._build_page_data(doc, mcq=True)
 
         raw: Dict[int, List] = {}
         order: List[int] = []
@@ -499,20 +451,22 @@ class PyMuPDFExtractor:
                     continue
                 if DEFAULT_CAPTION_PATTERN.match(ln.text.strip()):
                     continue
+                if any(u - 1 <= ln.bbox.y0 and ln.bbox.y1 <= lo + 1 for (u, lo) in pd["bands"]):
+                    continue
                 t = ln.text.strip()
                 if t:
-                    raw.setdefault(current_q, []).append((ln, pd["bands"]))
+                    raw.setdefault(current_q, []).append(ln)
                     if current_q not in order:
                         order.append(current_q)
 
         results = []
         for qnum in order:
-            ln_band_pairs = raw[qnum]
+            lns = raw[qnum]
             stem_parts: List[str] = []
             options: Dict[str, str] = {"A": "", "B": "", "C": "", "D": ""}
             current_opt: Optional[str] = None
 
-            for i, (ln, bands) in enumerate(ln_band_pairs):
+            for i, ln in enumerate(lns):
                 t = ln.text.strip()
                 # Only strip leading question-number prefix on the first line of the question
                 if i == 0 and re.match(rf"^{qnum}\s+", t):
@@ -523,41 +477,23 @@ class PyMuPDFExtractor:
                 solo_m = OPTION_SOLO.match(t_body)
                 opt_m = OPTION_INLINE.match(t_body)
 
-                # Disambiguate Option A from question stem starting with "A ..."
-                # e.g. "A passenger is sitting..." must NOT be treated as option A.
+                # Disambiguate Option A from question stem starting with "A ..." (e.g. "A passenger is sitting...")
                 is_real_option_a = True
                 if opt_m and opt_m.group(1) == "A" and current_opt is None:
                     rest = opt_m.group(2).strip()
                     if len(rest.split()) > 3 and not re.match(r"^(is|are|has|have|can|must|decreases|increases|unchanged)\b", rest):
                         is_real_option_a = False
 
-                # Option A must be positioned near the left margin (x0 <= 95) to be considered
-                # the start of the options block (avoids false positives from centered graph labels).
-                # Once options have started, subsequent letters (B, C, D) may appear anywhere (e.g. horizontal layout).
-                allow_opt_marker = (ln.bbox.x0 <= 95) if current_opt is None else True
-
-                if solo_m and solo_m.group(1) in MCQ_ANSWER_LABELS and allow_opt_marker:
+                if solo_m and solo_m.group(1) in MCQ_ANSWER_LABELS:
                     current_opt = solo_m.group(1)
                     options[current_opt] = ""
-                elif opt_m and opt_m.group(1) in MCQ_ANSWER_LABELS and is_real_option_a and allow_opt_marker:
+                elif opt_m and opt_m.group(1) in MCQ_ANSWER_LABELS and is_real_option_a:
                     current_opt = opt_m.group(1)
                     options[current_opt] = opt_m.group(2).strip()
                 elif current_opt is not None:
                     options[current_opt] = (options[current_opt] + " " + t_body).strip()
                 else:
-                    # In question stem: suppress text lines that fall inside visual bands (diagram labels)
-                    in_band = any(u - 1 <= ln.bbox.y0 and ln.bbox.y1 <= lo + 1 for (u, lo) in bands)
-                    if not in_band:
-                        stem_parts.append(t_body)
-
-            # ── Visual-options guard ───────────────────────────────────────────
-            # When A/B/C/D options ARE images (graphs, circuit diagrams, …),
-            # any surviving option text consists only of repeated short axis/label
-            # tokens that are meaningless as text answers. Detect this pattern and
-            # blank all options so the stored JSON stays clean and unambiguous.
-            has_image = qnum in manifest_q_set
-            options = self._blank_visual_options_if_needed(options, has_image=has_image)
-            # ─────────────────────────────────────────────────────────────────
+                    stem_parts.append(t_body)
 
             results.append({
                 "QuestionNumber": self._fmt_qnum(qnum, meta),
@@ -576,37 +512,6 @@ class PyMuPDFExtractor:
 
         doc.close()
         return results
-
-    @staticmethod
-    def _blank_visual_options_if_needed(options: Dict[str, str], has_image: bool = True) -> Dict[str, str]:
-        """Return ``options`` with all values blanked when they look like visual-image
-        labels rather than real text choices.
-
-        Only operates when the question is known to have associated visual figures.
-        """
-        if not has_image:
-            return options
-
-        non_empty = {k: v for k, v in options.items() if v.strip()}
-        if not non_empty:
-            return options
-
-        # Check for repetitive axis-label tokens within any option (e.g. "pressure pressure ...")
-        for v in non_empty.values():
-            words = v.lower().split()
-            if len(words) >= 4:
-                from collections import Counter
-                counts = Counter(words)
-                if any(c >= 3 for c in counts.values()):
-                    return {"A": "", "B": "", "C": "", "D": ""}
-
-        # Check if all non-empty options share an identical tiny token set (axis label pattern)
-        if len(non_empty) >= 2:
-            token_sets = [frozenset(v.lower().split()) for v in non_empty.values()]
-            if len(set(token_sets)) == 1 and all(len(ts) <= 2 for ts in token_sets):
-                return {"A": "", "B": "", "C": "", "D": ""}
-
-        return options
 
     # ── MCQ MS ────────────────────────────────────────────────────────────
 
