@@ -320,9 +320,24 @@ def test_pymupdf_extractor_real_mcq_qp():
     assert q7["Options"]["A"] == "decreases decreases"
     assert q7["Options"]["B"] == "increases increases"
 
-    # Q8 numbers not stripped from option contents
+    # Q8 numbers not stripped from option contents and diagram labels omitted from stem
     q8 = results[7]
     assert q8["Options"]["A"] == "1.5 kg"
     assert q8["Options"]["C"] == "30 kg"
+    assert "15 N 30 cm" not in q8["Question_text"]
+    assert "trapdoor ledge hinge weight" not in q8["Question_text"]
+
+    # Q10 visual options (graphs) blanked to empty strings
+    q10 = results[9]
+    assert q10["Options"] == {"A": "", "B": "", "C": "", "D": ""}
+
+    # Q6, Q17, Q19 visual options remain empty
+    assert results[5]["Options"] == {"A": "", "B": "", "C": "", "D": ""}
+    assert results[16]["Options"] == {"A": "", "B": "", "C": "", "D": ""}
+    assert results[18]["Options"] == {"A": "", "B": "", "C": "", "D": ""}
+
+    # Q28 table options preserved
+    q28 = results[27]
+    assert "voltage / V" in q28["Options"]["A"]
 
 
