@@ -38,18 +38,39 @@ DEFAULT_CAPTION_PATTERN = re.compile(
     r"^\s*(Fig(?:ure)?\.?|Table)\s*(\d{1,2})\.(\d{1,2})(?:\s*\([^\)]+\))?\s*$",
     re.IGNORECASE,
 )
+DIAGRAM_CAPTION_PATTERN = re.compile(
+    r"^\s*(?:Diagram|Fig(?:ure)?)\s+([IVX\d]+(?:\s*\([^\)]+\))?)\s*$",
+    re.IGNORECASE,
+)
 
 LEFT_MARGIN_X = 60.0       # question numbers sit left of this
-HEADER_Y = 55.0            # page-number-in-header sits above this; ignore it
+HEADER_Y = 40.0            # page-number-in-header sits above this; ignore it
 MAX_LINE_HEIGHT = 45.0     # guard against rotated page-tall margin text (e.g. 'DO NOT WRITE IN THIS MARGIN')
 PROSE_MIN_WIDTH = 150.0    # a "real sentence" line is at least this wide
 PROSE_MAX_X0 = 110.0       # ...and starts within the normal text column
 PROSE_CHAIN_GAP = 20.0     # max vertical gap between lines of one paragraph
 CONTENT_MAX_X = 522.0      # "For Examiner's Use" sidebar starts right of this
-MIN_STROKE_LEN = 3.0       # drop sub-pixel path fragments, keep thin long lines
+MIN_STROKE_LEN = 1.0       # drop sub-pixel path fragments, keep dots and thin long lines
 GAP_BREAK = 40.0           # blank vertical gap (pt) that splits a figure into bands
 STITCH_GAP_PX = 16         # visual gap between stitched bands in the output
 PART_LABEL = re.compile(r"^\s*\(([a-z]|i{1,3}v?|vi{0,3}|ix|x{0,3})\)\s*", re.IGNORECASE)
+
+# Hierarchical part detection — mirrors the one in pymupdf_extractor.py
+_VIS_PART_RE = re.compile(
+    r"^\s*"
+    r"(?:\d{1,2}\s+)?"
+    r"(?:"
+        r"\(([a-g])\)\s*\(([ivx]+)\)"    # compound: (b)(i)
+        r"|"
+        r"\(([a-g])\)"                    # letter only: (a)
+        r"|"
+        r"\(([ivx]+)\)"                   # roman only: (i)
+    r")\s*"
+    r"(.*)$",
+    re.IGNORECASE,
+)
+_VIS_SUB_NUM_RE = re.compile(r"^\s*(?:([1-9])\.|\(([1-9])\))\s+([a-zA-Z].*)$", re.IGNORECASE)
+
 
 # MCQ paper detection & extraction constants
 MCQ_Q_PATTERN = re.compile(r"^(\d{1,2})\s+\S")       # "5 Two men..." or "40 Which..."
@@ -58,6 +79,85 @@ MCQ_Q_X0_MAX = 58.0        # MCQ question numbers sit at x0 ≈ 50, never beyond
 MCQ_ANSWER_LABELS = {"A", "B", "C", "D"}  # MCQ answer option labels
 MCQ_MIN_CLUSTER_AREA = 2000.0  # Minimum vector cluster area to count as a real diagram
 MCQ_MIN_CLUSTER_DIM = 30.0     # Min longest dimension to count as a real diagram
+MCQ_MAX_TEXT_DENSITY = 0.35    # Diagram clusters must have text coverage < 35% (tables have >= 45%)
+FALLBACK_MIN_CLUSTER_AREA = 3000.0  # Min cluster area for uncaptioned fallback diagrams (e.g. Maths)
+FALLBACK_MIN_CLUSTER_DIM = 20.0     # Min dimension for uncaptioned fallback diagrams
+
+# Mathematical font symbol mapping and superscript tables
+SUPERSCRIPT_MAP = {
+    '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+    '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    '+': '⁺', '-': '⁻', '–': '⁻', '—': '⁻', '=': '⁼',
+    '(': '⁽', ')': '⁾', 'n': 'ⁿ', 'i': 'ⁱ', 'x': 'ˣ', 'y': 'ʸ',
+}
+
+PUA_FONT_MAP = {
+    0xf0b4: '×', 0xf0b8: '÷', 0xf0b0: '°', 0xf057: 'Ω',
+    0xf0b7: '•', 0xf0b1: '±', 0xf0ae: '→', 0xf0ac: '←',
+    0xf0a3: '≤', 0xf0b3: '≥', 0xf0b9: '≠', 0xf071: 'θ',
+    0xf070: 'π', 0xf044: 'Δ', 0xf06c: 'λ', 0xf06d: 'μ',
+    0xf072: 'ρ', 0xf061: 'α', 0xf062: 'β', 0xf067: 'γ',
+    0xf053: 'Σ', 0xf073: 'σ', 0xf0a5: '∞', 0xf0c5: '∅',
+    0xf0ce: '∈', 0xf0cf: '∉', 0xf0cd: '⊂', 0xf0cc: '⊆',
+    0xf0c7: '∩', 0xf0c8: '∪', 0xf0d6: '√', 0xf0b2: '"',
+    0xf020: ' ',
+}
+
+
+def map_font_glyphs(text: str, font: str) -> str:
+    """Map font-specific encodings and Private Use Area code points to standard Unicode mathematical symbols."""
+    res = []
+    for ch in text:
+        code = ord(ch)
+        if code in PUA_FONT_MAP:
+            res.append(PUA_FONT_MAP[code])
+        elif "MathematicalPi-One" in font:
+            if code == 0x02 or code == 0xe03c:
+                res.append('<')
+            elif code == 0x03:
+                res.append('>')
+            elif code in (0x04, 0x05, 0xe02c):
+                res.append('≤')
+            else:
+                res.append(ch)
+        elif "MathematicalPi-Three" in font:
+            if code in (0x02, 0xe031):
+                res.append('(')
+            elif code in (0x03, 0xe032):
+                res.append(')')
+            else:
+                res.append(ch)
+        elif "MathematicalPi-Two" in font:
+            if code == 0x02:
+                res.append('ℰ')
+            else:
+                res.append(ch)
+        elif "MathematicalPi-Four" in font:
+            if code == 0x02:
+                res.append('∪')
+            elif code == 0x03:
+                res.append("'")
+            else:
+                res.append(ch)
+        elif 0xf8ea <= code <= 0xf8f8:
+            continue
+        elif code < 32 and ch not in '\n\r\t':
+            if code == 0x02:
+                res.append('<')
+            elif code == 0x03:
+                res.append('>')
+            elif code in (0x04, 0x05):
+                res.append('≤')
+            else:
+                res.append(' ')
+        else:
+            res.append(ch)
+    return ''.join(res)
+
+
+def rect_area(r: fitz.Rect) -> float:
+    """Safe area computation returning 0.0 for empty/inverted rects."""
+    return max(0.0, r.width) * max(0.0, r.height)
 
 
 @dataclass
@@ -74,14 +174,23 @@ def rect_union(a: fitz.Rect, b: fitz.Rect) -> fitz.Rect:
     return fitz.Rect(min(a.x0, b.x0), min(a.y0, b.y0), max(a.x1, b.x1), max(a.y1, b.y1))
 
 
-def rects_touch(a: fitz.Rect, b: fitz.Rect, pad: float = 0.0) -> bool:
+def rects_touch(
+    a: fitz.Rect,
+    b: fitz.Rect,
+    pad: float = 0.0,
+    pad_x: Optional[float] = None,
+    pad_y: Optional[float] = None,
+) -> bool:
     """Padded overlap test computed manually without PyMuPDF zero-area dropping."""
+    px = pad_x if pad_x is not None else pad
+    py = pad_y if pad_y is not None else pad
     return not (
-        b.x1 < a.x0 - pad
-        or b.x0 > a.x1 + pad
-        or b.y1 < a.y0 - pad
-        or b.y0 > a.y1 + pad
+        b.x1 < a.x0 - px
+        or b.x0 > a.x1 + px
+        or b.y1 < a.y0 - py
+        or b.y0 > a.y1 + py
     )
+
 
 
 class CambridgeVisualExtractor:
@@ -195,7 +304,25 @@ class CambridgeVisualExtractor:
             if block.get("type") != 0:
                 continue
             for line in block.get("lines", []):
-                text = "".join(s.get("text", "") for s in line.get("spans", []))
+                spans = line.get("spans", [])
+                line_parts = []
+                for i, s in enumerate(spans):
+                    txt = s.get("text", "")
+                    if not txt:
+                        continue
+                    txt = map_font_glyphs(txt, s.get("font", ""))
+                    if i > 0 and line_parts:
+                        prev_s = spans[i - 1]
+                        if prev_s.get("text", "").strip():
+                            sz_ratio = s["size"] / prev_s["size"] if prev_s.get("size", 0) > 0 else 1.0
+                            y_diff = prev_s["bbox"][3] - s["bbox"][3]
+                            if 0.5 < sz_ratio < 0.88 and y_diff > 1.5:
+                                if all(c in SUPERSCRIPT_MAP or c.isspace() for c in txt.strip()):
+                                    txt = "".join(SUPERSCRIPT_MAP.get(c, c) for c in txt.strip())
+                    line_parts.append(txt)
+                text = "".join(line_parts)
+                # Collapse space before superscript if any: e.g. '5t ²' -> '5t²'
+                text = re.sub(r"([a-zA-Z0-9])\s+([⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱˣʸ])", r"\1\2", text)
                 if not text.strip():
                     continue
                 bbox = fitz.Rect(line["bbox"])
@@ -260,7 +387,14 @@ class CambridgeVisualExtractor:
         caps.sort(key=lambda c: c["bbox"].y0)
         return caps
 
-    def cluster_rects(self, rects: List[fitz.Rect], pad: float = 8.0, max_iter: int = 12) -> List[fitz.Rect]:
+    def cluster_rects(
+        self,
+        rects: List[fitz.Rect],
+        pad: float = 8.0,
+        pad_x: Optional[float] = None,
+        pad_y: Optional[float] = None,
+        max_iter: int = 12,
+    ) -> List[fitz.Rect]:
         """Merge nearby bounding boxes into clusters using safe union."""
         out_rects = [fitz.Rect(r) for r in rects]
         changed = True
@@ -278,7 +412,7 @@ class CambridgeVisualExtractor:
                     if used[j]:
                         continue
                     r2 = out_rects[j]
-                    if rects_touch(base, r2, pad):
+                    if rects_touch(base, r2, pad=pad, pad_x=pad_x, pad_y=pad_y):
                         base = rect_union(base, r2)
                         used[j] = True
                         changed = True
@@ -396,33 +530,77 @@ class CambridgeVisualExtractor:
 
     def _is_mcq_paper(self, doc: fitz.Document, pdf_path: Optional[Path] = None) -> bool:
         """
-        Return True when this is an MCQ-style paper (papers 11, 12, 13).
+        Return True when this is an MCQ-style paper (e.g. 5054/11, 5070/11, etc.).
 
         Detection heuristics:
-        1. Filename check: if filename stem ends with _11, _12, _13, _1, _qp_11, _qp_12, _qp_13, _qp_1.
-        2. Layout check: No page in the first 8 pages contains any 'Fig. N.M' caption
-           AND at least 2 pages contain MCQ question anchors (using both combined
-           and split-line single-digit anchor patterns).
+        1. Non-QP check: If it's a mark scheme or contains 'mark scheme' -> False.
+        2. Caption check: If any page contains 'Fig. N.M' / 'Table N.M' captions -> False
+           (Cambridge MCQ papers never use Fig. N.M captions).
+        3. Written paper indicators: If recurring bracketed marks '[1]', '[2]', '[Total:',
+           or 'Answer (a)' lines are found -> False (this is a written exam, e.g. Maths 4024).
+        4. Option evidence: Scans questions for recurring uppercase options {A, B, C, D}
+           using MCQ_ANSWER_LABELS. Requires actual option evidence before classifying as MCQ.
         """
-        if pdf_path:
-            stem = pdf_path.stem.lower()
-            if any(stem.endswith(sfx) for sfx in ["_11", "_12", "_13", "_1", "_qp_11", "_qp_12", "_qp_13", "_qp_1"]):
-                return True
+        # Cover page text inspection
+        text_p0 = doc[0].get_text().lower() if len(doc) > 0 else ""
+        text_p1 = doc[1].get_text().lower() if len(doc) > 1 else ""
+        cover_text = text_p0 + " " + text_p1
+
+        if "mark scheme" in cover_text or (pdf_path and "_ms_" in pdf_path.name.lower()):
+            return False
 
         caption_count = 0
-        mcq_q_page_count = 0
+        mark_brackets_count = 0
+        mcq_questions_with_options = 0
 
-        for pno in range(min(8, len(doc))):
+        pages_to_check = min(8, len(doc))
+        for pno in range(pages_to_check):
             page = doc[pno]
             lines = self.get_lines(page)
             captions = self.get_captions(lines)
             if captions:
                 caption_count += len(captions)
+
+            # Check for written paper marks like [1], [2], [Total: or Answer (a) lines
+            for ln in lines:
+                t = ln.text.strip()
+                if re.search(r"\[\s*\d+\s*\]", t) or re.search(r"\[\s*Total", t, re.I) or t.startswith("Answer ("):
+                    mark_brackets_count += 1
+
+            # Check MCQ question anchors and options
             anchors = self.get_mcq_question_anchors(lines)
             if anchors:
-                mcq_q_page_count += 1
+                page_bottom = page.rect.y1 - 20
+                for i, (qnum, q_y0, q_y1) in enumerate(anchors):
+                    span_bottom = anchors[i + 1][1] if i + 1 < len(anchors) else page_bottom
+                    opts_found = set()
+                    for ln in lines:
+                        if q_y0 <= ln.bbox.y0 < span_bottom:
+                            t = ln.text.strip()
+                            if t in MCQ_ANSWER_LABELS:
+                                opts_found.add(t)
+                            elif len(t) > 2 and t[0] in MCQ_ANSWER_LABELS and t[1] in {" ", ".", ")"}:
+                                opts_found.add(t[0])
+                    if MCQ_ANSWER_LABELS.issubset(opts_found):
+                        mcq_questions_with_options += 1
 
-        return caption_count == 0 and mcq_q_page_count >= 2
+        # Captioned papers are not standard uncaptioned MCQ papers
+        if caption_count > 0:
+            return False
+
+        # If paper has multiple written question mark allocations [1], [2], it's not MCQ
+        if mark_brackets_count >= 3:
+            return False
+
+        # Strong evidence: multiple questions with full A, B, C, D options
+        if mcq_questions_with_options >= 2:
+            return True
+
+        # Cover page explicitly says 'multiple choice' and at least 1 question has A, B, C, D
+        if "multiple choice" in cover_text and mcq_questions_with_options >= 1:
+            return True
+
+        return False
 
     def get_mcq_question_anchors(self, lines: List[Line]) -> List[Tuple[int, float, float]]:
         """
@@ -487,28 +665,17 @@ class CambridgeVisualExtractor:
         ]
         all_clusters = [
             r for r in self.cluster_rects(raw_rects)
-            if r.get_area() >= MCQ_MIN_CLUSTER_AREA
+            if rect_area(r) >= MCQ_MIN_CLUSTER_AREA
             or (max(r.width, r.height) >= MCQ_MIN_CLUSTER_DIM and min(r.width, r.height) >= 5.0)
         ]
 
         if not all_clusters:
             return last_seen_question
 
-        # Text-density filter: only extract as diagram if text coverage < 8% (density < 0.08).
-        # Clusters with density >= 0.08 are answer/data tables with prose options, not diagrams.
-        text_blocks = page.get_text("blocks")
-        filtered_clusters = []
-        for c in all_clusters:
-            c_area = c.get_area()
-            text_area = 0.0
-            for b in text_blocks:
-                b_rect = fitz.Rect(b[:4])
-                if rects_touch(c, b_rect):
-                    intersection = c & b_rect
-                    text_area += intersection.get_area()
-            density = (text_area / c_area) if c_area > 0 else 0.0
-            if density < 0.08:
-                filtered_clusters.append(c)
+        # All vector clusters in MCQ pages represent either diagrams or option/data tables.
+        # Both must be extracted so questions with tables (where text extraction leaves
+        # option text empty) have visual representations.
+        filtered_clusters = all_clusters
 
         if not filtered_clusters:
             return last_seen_question
@@ -576,13 +743,16 @@ class CambridgeVisualExtractor:
                 canvas, bbox_out = self.render_stitched(page, all_boxes)
 
                 sub_idx = len([e for e in manifest if e.get("question") == qnum]) + 1
-                fname = f"p{pno + 1}_q{qnum}_mcq_{sub_idx}.png"
+                fname = f"p{pno + 1}_q{qnum}_question_mcq_{sub_idx}.png"
                 save_path = output_dir / fname
                 canvas.save(str(save_path))
 
                 entry = {
                     "page": pno + 1,
                     "question": qnum,
+                    "target_type": "question",
+                    "target_label": f"Q{qnum}",
+                    "part": None,
                     "caption": None,
                     "bbox": [round(v, 1) for v in bbox_out],
                     "filename": fname,
@@ -594,7 +764,12 @@ class CambridgeVisualExtractor:
 
         return last_seen_question
 
-    def extract(self, pdf_path: Path, output_dir: Path) -> List[Dict[str, Any]]:
+    def extract(
+        self,
+        pdf_path: Path,
+        output_dir: Path,
+        force_mcq: Optional[bool] = None,
+    ) -> List[Dict[str, Any]]:
 
         """
         Extract all visual figures and diagrams from PDF into output_dir.
@@ -614,7 +789,10 @@ class CambridgeVisualExtractor:
 
         # Detect MCQ papers (11/12/13) up front — they have no Fig. N.M captions
         # and use a different question-anchor scheme.
-        is_mcq = self._is_mcq_paper(doc, pdf_path)
+        if force_mcq is not None:
+            is_mcq = force_mcq
+        else:
+            is_mcq = self._is_mcq_paper(doc, pdf_path)
         if is_mcq:
             logger.info("  Detected MCQ paper format — using question-span extractor")
 
@@ -634,6 +812,63 @@ class CambridgeVisualExtractor:
                 last_seen_question = anchors[-1][0]
             captions = self.get_captions(lines)
 
+            # Build question-scoped part anchors: [(q_num, part_label_str, target_type, y0), ...]
+            # Scoped strictly by question boundary so parts from question N never bleed into question N+1.
+            part_anchors: List[Tuple[Optional[int], str, str, float]] = []
+            _curr_q: Optional[int] = anchors[0][0] if anchors else last_seen_question
+            _current_letter: Optional[str] = None
+            _current_subpart: Optional[str] = None
+
+            def _get_active_q_for_y(y: float) -> Optional[int]:
+                active_q = anchors[0][0] if anchors else last_seen_question
+                for qn, qy in anchors:
+                    if qy <= y:
+                        active_q = qn
+                    else:
+                        break
+                return active_q
+
+            for ln in lines:
+                active_q_for_ln = _get_active_q_for_y(ln.bbox.y0)
+                if active_q_for_ln != _curr_q:
+                    _curr_q = active_q_for_ln
+                    _current_letter = None
+                    _current_subpart = None
+
+                sub_num_m = _VIS_SUB_NUM_RE.match(ln.text.strip()) if _current_subpart else None
+                pm = _VIS_PART_RE.match(ln.text.strip()) if not sub_num_m else None
+                if pm:
+                    comp_l, comp_r, ltr, rom = pm.group(1), pm.group(2), pm.group(3), pm.group(4)
+                    if comp_l and comp_r:
+                        _current_letter = comp_l.lower()
+                        _current_subpart = f"{comp_l.lower()}({comp_r.lower()})"
+                        part_anchors.append((_curr_q, _current_subpart, "sub_part", ln.bbox.y0))
+                    elif ltr:
+                        _current_letter = ltr.lower()
+                        _current_subpart = None
+                        part_anchors.append((_curr_q, ltr.lower(), "part", ln.bbox.y0))
+                    elif rom and _current_letter:
+                        _current_subpart = f"{_current_letter}({rom.lower()})"
+                        part_anchors.append((_curr_q, _current_subpart, "sub_part", ln.bbox.y0))
+                    else:
+                        continue
+                elif sub_num_m and _current_subpart:
+                    num = sub_num_m.group(1) or sub_num_m.group(2)
+                    _ssp_str = f"{_current_subpart}({num})"
+                    part_anchors.append((_curr_q, _ssp_str, "sub_part", ln.bbox.y0))
+
+            def _resolve_part_target(q_target: Optional[int], target_y: float) -> Tuple[str, str]:
+                """Resolve (target_type, target_label) scoped strictly to q_target's own parts."""
+                best_label = f"Q{q_target}"
+                best_type = "question"
+                q_parts = [(plabel, ptype, py0) for pq, plabel, ptype, py0 in part_anchors if pq == q_target]
+                for plabel, ptype, py0 in q_parts:
+                    if py0 <= target_y + 10:
+                        best_label, best_type = plabel, ptype
+                    else:
+                        break
+                return best_type, best_label
+
             # Content printable limits
             PRINT_X0, PRINT_X1 = 35.0, 540.0
             PRINT_Y0, PRINT_Y1 = 45.0, 785.0
@@ -647,19 +882,35 @@ class CambridgeVisualExtractor:
             filtered_drawings = []
             current_scissor: Optional[fitz.Rect] = None
             for d in page.get_drawings(extended=True):
-                if d.get("type") == "clip":
-                    scissor = d.get("scissor")
-                    current_scissor = fitz.Rect(scissor) if scissor else None
+                d_type = d.get("type")
+                if d_type in ("clip", "group"):
+                    if d_type == "clip":
+                        scissor = d.get("scissor")
+                        current_scissor = fitz.Rect(scissor) if scissor else None
                     continue
                 raw_r = d.get("rect")
                 if raw_r is None:
                     continue
                 r = fitz.Rect(raw_r)
+                # Give 1-D lines (e.g. horizontal/vertical graph grid lines) nominal thickness
+                # so PyMuPDF's is_empty does not drop them and rect clipping works properly
+                if r.height == 0:
+                    r = fitz.Rect(r.x0, r.y0 - 0.25, r.x1, r.y1 + 0.25)
+                if r.width == 0:
+                    r = fitz.Rect(r.x0 - 0.25, r.y0, r.x1 + 0.25, r.y1)
                 # Clip to the active scissor first (before intersecting with page.rect)
                 if current_scissor is not None and not current_scissor.is_empty:
-                    r = r & current_scissor
+                    clipped_r = r & current_scissor
+                    if clipped_r.is_empty:
+                        # Drawing is completely outside the scissor, indicating local clip scope has ended in PDF
+                        current_scissor = None
+                    else:
+                        r = clipped_r
                 r = r & page.rect
                 if r.is_empty or max(r.width, r.height) <= self.min_stroke_len:
+                    continue
+                # Filter full-page or near full-page canvas/background drawings
+                if r.width >= 0.8 * page.rect.width and r.height >= 0.8 * page.rect.height:
                     continue
                 # Left / right margin gutter (e.g. DO NOT WRITE IN THIS MARGIN sidebar)
                 if r.x1 <= PRINT_X0 or r.x0 >= PRINT_X1:
@@ -667,8 +918,16 @@ class CambridgeVisualExtractor:
                 # Rotated page-tall margin lines or watermark runs
                 if r.height > 400 and r.width < 50:
                     continue
-                # Header / footer corner registration marks
+                # Header region, header boxes, or corner registration marks
+                if r.y1 <= 60.0 or (r.y0 <= 60.0 and r.width > 300.0):
+                    continue
+                # Footer region or corner registration marks
+                if r.y0 >= PRINT_Y1:
+                    continue
                 if (r.y1 <= PRINT_Y0 or r.y0 >= PRINT_Y1) and (r.x1 <= 65.0 or r.x0 >= 520.0):
+                    continue
+                # Page-spanning dividing/separator rules
+                if r.width > 350.0 and r.height < 3.0:
                     continue
                 filtered_drawings.append(r)
 
@@ -756,15 +1015,55 @@ class CambridgeVisualExtractor:
                     if qnum is None:
                         qnum = last_seen_question if last_seen_question is not None else cap["q_from_caption"]
 
+                    # ── Part association ──────────────────────────────────────────────
+                    # Strategy 1: check if any part line on this page explicitly names
+                    # this figure (e.g. "On Fig. 5.2, continue the ray…" → part b)
+                    fig_ref_re = re.compile(
+                        r"\bFig(?:ure)?\s*" + re.escape(cap["label"]),
+                        re.IGNORECASE,
+                    )
+                    target_type: Optional[str] = None
+                    target_label: Optional[str] = None
+
+                    for ln2 in lines:
+                        pm2 = _VIS_PART_RE.match(ln2.text.strip())
+                        if pm2 and fig_ref_re.search(pm2.group(5) or ""):
+                            comp_l2, comp_r2, ltr2, rom2 = pm2.group(1), pm2.group(2), pm2.group(3), pm2.group(4)
+                            if comp_l2 and comp_r2:
+                                target_type = "sub_part"
+                                target_label = f"{comp_l2.lower()}({comp_r2.lower()})"
+                            elif ltr2:
+                                target_type = "part"
+                                target_label = ltr2.lower()
+                            elif rom2:
+                                target_type = "sub_part"
+                                target_label = f"{_current_letter}({rom2.lower()})" if _current_letter else rom2.lower()
+                            break
+
+                    # Strategy 2: vertical containment against question's own part anchors
+                    if target_type is None:
+                        target_type, target_label = _resolve_part_target(qnum, cap["bbox"].y0)
+
+                    # Build discriminator tag: exactly one of "question", "part_{label}", "sub_part_{label}"
+                    if target_type == "question":
+                        tag_str = "question"
+                    elif target_type == "part":
+                        tag_str = f"part_{target_label}"
+                    else:
+                        tag_str = f"sub_part_{target_label}"
+
                     tag = "Table" if cap.get("kind") == "table" else "Fig"
                     clean_label = f"{tag}_{cap['q_from_caption']}_{cap['sub']}"
-                    fname = f"p{pno + 1}_q{qnum}_{clean_label}.png"
+                    fname = f"p{pno + 1}_q{qnum}_{tag_str}_{clean_label}.png"
                     save_path = output_dir / fname
                     canvas.save(str(save_path))
 
                     entry = {
                         "page": pno + 1,
                         "question": qnum,
+                        "target_type": target_type,
+                        "target_label": target_label,
+                        "part": target_label if target_type in ("part", "sub_part") else None,
                         "caption": cap["label"],
                         "bbox": [round(v, 1) for v in bbox_out],
                         "filename": fname,
@@ -772,49 +1071,193 @@ class CambridgeVisualExtractor:
                         "relative_path": f"{output_dir.name}/{fname}",
                     }
                     manifest.append(entry)
-                    logger.info(f"  Extracted: {fname} (Page {pno + 1}, Q{qnum}, {cap['label']})")
+                    logger.info(f"  Extracted: {fname} (Page {pno + 1}, Q{qnum}, {cap['label']}, target={tag_str})")
 
             # Fallback: unclaimed geometry with substantial 2-D footprint (skip cover page pno == 0)
             if pno > 0 and last_seen_question is not None:
-                unclaimed_vectors = [
+                raw_drawings = [
                     r for gi, (kind, r) in enumerate(all_geo)
                     if not claimed[gi] and not overlaps_any_caption[gi] and kind == "vector"
+                    and not (r.width > 350 and r.height < 3.0)  # horizontal ruling lines
+                    and not (r.height > 350 and r.width < 3.0)  # vertical margin lines
                 ]
-                clustered_fallbacks = self.cluster_rects(unclaimed_vectors)
-                for r in clustered_fallbacks:
-                    # Must be strictly within printable bounds and substantial
-                    if r.x0 < PRINT_X0 or r.x1 > PRINT_X1 or r.y0 < PRINT_Y0 or r.y1 > PRINT_Y1:
-                        continue
-                    if r.get_area() < 8000 or min(r.width, r.height) < 30.0:
-                        continue
+                # Filter isolated 1-D micro vectors (fraction bars, minus signs, stray tick marks)
+                unclaimed_vectors = []
+                for r in raw_drawings:
+                    if min(r.width, r.height) <= 1.0 and max(r.width, r.height) < 25.0:
+                        if not any(d2 != r and rects_touch(r, d2, pad=35.0) for d2 in raw_drawings):
+                            continue
+                    unclaimed_vectors.append(r)
 
-                    qnum = None
-                    for qn, y in anchors:
-                        if y <= r.y0:
-                            qnum = qn
-                    if qnum is None:
-                        qnum = last_seen_question
+                if unclaimed_vectors:
+                    # Identify prose lines to prevent paragraph text from bleeding into diagram crops
+                    prose_indices: Set[int] = set()
+                    for i, ln in enumerate(lines):
+                        if ln.bbox.x0 <= 120.0 and ln.width >= 120.0:
+                            prose_indices.add(i)
+                        elif ln.bbox.x0 <= 120.0 and i > 0 and (i - 1) in prose_indices and (ln.bbox.y0 - lines[i - 1].bbox.y1 <= 22.0):
+                            prose_indices.add(i)
 
-                    clip = (r + (-self.pad, -self.pad, self.pad, self.pad)) & page.rect
-                    pix = page.get_pixmap(clip=clip, dpi=self.dpi)
-                    if self._is_blank_image(pix):
-                        continue
+                    # Bridge sparse diagram marks with nearby short text labels (e.g. compass bearings, points, dimensions)
+                    short_labels = []
+                    for i, ln in enumerate(lines):
+                        if i in prose_indices:
+                            continue
+                        t = ln.text.strip()
+                        if _VIS_PART_RE.match(t) or PART_LABEL.match(t):
+                            continue
+                        if t.startswith(("Answer", "Question", "©", "[")) or t.endswith("]") or (ln.bbox.x0 <= 60 and t.split()[0].isdigit()):
+                            continue
+                        if ln.bbox.x0 <= 120.0 and (t.endswith((".", ";")) or len(t) > 35):
+                            continue
+                        if ln.bbox.x0 < PRINT_X0 or ln.bbox.x1 > PRINT_X1 or ln.bbox.y0 < 60.0 or ln.bbox.y1 > PRINT_Y1:
+                            continue
+                        if ln.width < 120:
+                            short_labels.append(ln.bbox)
 
-                    fname = f"p{pno + 1}_q{qnum}_fallback_vector_{len(manifest) + 1}.png"
-                    save_path = output_dir / fname
-                    pix.save(str(save_path))
+                    combined_vecs = list(unclaimed_vectors)
+                    for lbl in short_labels:
+                        if any(rects_touch(lbl, v, pad_x=55.0, pad_y=25.0) for v in unclaimed_vectors):
+                            combined_vecs.append(lbl)
 
-                    entry = {
-                        "page": pno + 1,
-                        "question": qnum,
-                        "caption": None,
-                        "bbox": [round(v, 1) for v in clip],
-                        "filename": fname,
-                        "file": fname,
-                        "relative_path": f"{output_dir.name}/{fname}",
-                    }
-                    manifest.append(entry)
-                    logger.info(f"  Extracted (fallback): {fname} (Page {pno + 1}, Q{qnum})")
+                    clustered_fallbacks = self.cluster_rects(combined_vecs, pad_x=55.0, pad_y=20.0)
+                    for r in clustered_fallbacks:
+                        # Must be strictly within printable bounds and substantial
+                        if r.x0 < PRINT_X0 or r.x1 > PRINT_X1 or r.y0 < 55.0 or r.y1 > PRINT_Y1:
+                            continue
+                        area = rect_area(r)
+                        if area < 2500.0 or min(r.width, r.height) < 25.0:
+                            continue
+
+                        # Compute vector bounding box inside cluster to reject 1D lines (e.g. isolated fraction bars)
+                        v_in_cluster = [v for v in unclaimed_vectors if rects_touch(v, r, pad=2.0)]
+                        if not v_in_cluster:
+                            continue
+                        if all(min(v.width, v.height) <= 1.0 for v in v_in_cluster) and sum(max(v.width, v.height) for v in v_in_cluster) < 100.0:
+                            continue
+                        v_box = v_in_cluster[0]
+                        for v in v_in_cluster[1:]:
+                            v_box = rect_union(v_box, v)
+                        if min(v_box.width, v_box.height) < 20.0:
+                            continue
+
+                        # Expand to include Diagram / Figure caption directly below artwork
+                        r_expanded = fitz.Rect(r)
+                        for ln in lines:
+                            t = ln.text.strip()
+                            if DIAGRAM_CAPTION_PATTERN.match(t):
+                                if abs((ln.bbox.x0 + ln.bbox.x1) / 2.0 - (r.x0 + r.x1) / 2.0) < r.width * 0.6:
+                                    if 0 <= ln.bbox.y0 - r.y1 <= 30.0:
+                                        r_expanded = rect_union(r_expanded, ln.bbox)
+                        r = r_expanded
+
+                        qnum = None
+                        for qn, y in anchors:
+                            if y <= r.y0 + 10:
+                                qnum = qn
+                        if qnum is None:
+                            qnum = last_seen_question
+
+                        # Part association: vertical containment against question's own part anchors
+                        target_type, target_label = _resolve_part_target(qnum, r.y0)
+
+                        if target_type == "question":
+                            tag_str = "question"
+                        elif target_type == "part":
+                            tag_str = f"part_{target_label}"
+                        else:
+                            tag_str = f"sub_part_{target_label}"
+
+                        clip = (r + (-self.pad, -self.pad, self.pad, self.pad)) & page.rect
+                        pix = page.get_pixmap(clip=clip, dpi=self.dpi)
+                        if self._is_blank_image(pix):
+                            continue
+
+                        sub_cnt = len([e for e in manifest if e.get("question") == qnum]) + 1
+                        fname = f"p{pno + 1}_q{qnum}_{tag_str}_diagram_{sub_cnt}.png"
+                        save_path = output_dir / fname
+                        pix.save(str(save_path))
+
+                        entry = {
+                            "page": pno + 1,
+                            "question": qnum,
+                            "target_type": target_type,
+                            "target_label": target_label,
+                            "part": target_label if target_type in ("part", "sub_part") else None,
+                            "caption": "Diagram",
+                            "bbox": [round(v, 1) for v in clip],
+                            "filename": fname,
+                            "file": fname,
+                            "relative_path": f"{output_dir.name}/{fname}",
+                        }
+                        manifest.append(entry)
+                        logger.info(f"  Extracted (diagram): {fname} (Page {pno + 1}, Q{qnum}, target={tag_str})")
+
+            # Table pass: detect uncaptioned data tables via find_tables (skip cover page pno == 0)
+            if pno > 0 and last_seen_question is not None:
+                try:
+                    tabs = page.find_tables()
+                    page_extracted = [fitz.Rect(e["bbox"]) for e in manifest if e.get("page") == pno + 1]
+                    for t in tabs.tables:
+                        extracted_rows = t.extract()
+                        if not extracted_rows or len(extracted_rows) < 2 or len(extracted_rows[0]) < 2:
+                            continue
+                        first_row_str = " ".join(str(c) for c in extracted_rows[0] if c)
+                        if any(w in first_row_str.lower() for w in ["examiner's use", "candidate number", "centre number"]):
+                            continue
+                        t_rect = fitz.Rect(t.bbox)
+                        if t_rect.y0 <= PRINT_Y0 or t_rect.x0 >= CONTENT_MAX_X or t_rect.x1 <= PRINT_X0 or t_rect.y1 >= PRINT_Y1:
+                            continue
+                        if rect_area(t_rect) < 1500.0:
+                            continue
+                        # Skip if already claimed or overlapping an extracted visual
+                        if any(rects_touch(t_rect, eb, pad=10.0) for eb in page_extracted):
+                            continue
+
+                        qnum = None
+                        for qn, y in anchors:
+                            if y <= t_rect.y0 + 10:
+                                qnum = qn
+                        if qnum is None:
+                            qnum = last_seen_question
+
+                        # Part association: vertical containment against question's own part anchors
+                        target_type, target_label = _resolve_part_target(qnum, t_rect.y0)
+
+                        if target_type == "question":
+                            tag_str = "question"
+                        elif target_type == "part":
+                            tag_str = f"part_{target_label}"
+                        else:
+                            tag_str = f"sub_part_{target_label}"
+
+                        clip = (t_rect + (-self.pad, -self.pad, self.pad, self.pad)) & page.rect
+                        pix = page.get_pixmap(clip=clip, dpi=self.dpi)
+                        if self._is_blank_image(pix):
+                            continue
+
+                        sub_cnt = len([e for e in manifest if e.get("question") == qnum]) + 1
+                        fname = f"p{pno + 1}_q{qnum}_{tag_str}_Table_{sub_cnt}.png"
+                        save_path = output_dir / fname
+                        pix.save(str(save_path))
+
+                        entry = {
+                            "page": pno + 1,
+                            "question": qnum,
+                            "target_type": target_type,
+                            "target_label": target_label,
+                            "part": target_label if target_type in ("part", "sub_part") else None,
+                            "caption": "Table",
+                            "bbox": [round(v, 1) for v in clip],
+                            "filename": fname,
+                            "file": fname,
+                            "relative_path": f"{output_dir.name}/{fname}",
+                        }
+                        manifest.append(entry)
+                        page_extracted.append(clip)
+                        logger.info(f"  Extracted (table): {fname} (Page {pno + 1}, Q{qnum})")
+                except Exception as e:
+                    logger.debug(f"find_tables extraction failed on page {pno}: {e}")
 
         doc.close()
 

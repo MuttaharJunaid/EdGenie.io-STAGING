@@ -27,7 +27,9 @@ class PipelineSettings(BaseSettings):
 
     # ── AI Agents ──
     llm_provider: str = "google"
-    llm_model: str = "gemini-2.5-flash"
+    llm_model: str = "gemini-3.6-flash"
+    fallback_model: str = "qwen/qwen3-vl-8b-instruct"
+    openrouter_model: str = "qwen/qwen3-vl-8b-instruct"
 
     model_config = {
         "env_prefix": "EDGENIE_",

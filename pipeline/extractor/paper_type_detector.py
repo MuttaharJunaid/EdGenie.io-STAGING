@@ -101,7 +101,7 @@ class PaperTypeDetector:
     def detect(cls, pdf_path) -> PaperCategory:
         """Detect paper type checking both content (primary) and filename fallback."""
         category = cls.detect_by_content(pdf_path)
-        if category == PaperCategory.OTHER or category == PaperCategory.ESSAY_QP:
+        if category == PaperCategory.OTHER:
             # Let's cross-verify with filename
             filename_category = cls.detect_by_filename(pdf_path.name)
             if filename_category != PaperCategory.OTHER:

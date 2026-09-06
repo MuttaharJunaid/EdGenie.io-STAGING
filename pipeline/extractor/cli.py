@@ -15,6 +15,7 @@ dotenv.load_dotenv()
 from pipeline.config import settings
 from pipeline.extractor.paper_type_detector import PaperTypeDetector, PaperCategory
 from pipeline.extractor.syllabus_loader import SyllabusLoader
+from pipeline.extractor.agentic_extractor import AgenticExtractor
 from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
 from pipeline.extractor.classifier_agent import ClassifierAgent, QuotaExceededError
 from pipeline.scraper.scraper import PapaCambridgeScraper
@@ -103,6 +104,7 @@ def _print_results_table(pdf_name: str, parsed_records: List[Dict[str, Any]], is
 def extract_single(
     pdf_path: Path,
     force: bool = False,
+    paper_type: Optional[str] = None,
 ) -> Optional[Tuple[Path, List[Dict[str, Any]], PaperCategory, Dict[str, Any]]]:
     """
     Extracts text layout into structured JSON (zero LLM calls).
@@ -115,7 +117,19 @@ def extract_single(
 
     console.print(f"\n[bold blue]1. Detecting Paper Type...[/bold blue]")
     category = PaperTypeDetector.detect(pdf)
-    console.print(f"Detected Category: [bold yellow]{category.name}[/bold yellow] ([cyan]{category.value}[/cyan])")
+    if paper_type:
+        pt_norm = paper_type.strip().lower()
+        is_ms = ("_ms_" in pdf.name.lower() or "ms" in pdf.name.lower() or category in [PaperCategory.MCQ_MS, PaperCategory.ESSAY_MS])
+        if pt_norm == "essay":
+            category = PaperCategory.ESSAY_MS if is_ms else PaperCategory.ESSAY_QP
+            console.print(f"Paper Type overridden by user: [bold yellow]{category.name}[/bold yellow] ([cyan]{category.value}[/cyan])")
+        elif pt_norm == "mcq":
+            category = PaperCategory.MCQ_MS if is_ms else PaperCategory.MCQ_QP
+            console.print(f"Paper Type overridden by user: [bold yellow]{category.name}[/bold yellow] ([cyan]{category.value}[/cyan])")
+        else:
+            console.print(f"[yellow]Warning: unrecognized paper type override '{paper_type}'. Valid values: 'essay', 'mcq'. Using detected category: {category.name}[/yellow]")
+    else:
+        console.print(f"Detected Category: [bold yellow]{category.name}[/bold yellow] ([cyan]{category.value}[/cyan])")
 
     if any(sfx in pdf.name.lower() for sfx in ["_er_", "_er.", "_gt_", "_gt.", "_ir_", "_ir.", "_ci_", "_ci."]):
         console.print(f"[yellow]Skipping '{pdf.name}' — Examiner Reports (_er_), Grade Thresholds (_gt_), Confidential Instructions (_ir_/_ci_) are excluded from text extraction.[/yellow]")
@@ -138,15 +152,15 @@ def extract_single(
 
     meta_context = _get_meta_context(pdf)
 
-    # Layout extraction
-    console.print(f"\n[bold green]2. Running Layout Text Extractor (PyMuPDF)...[/bold green]")
-    layout_extractor = PyMuPDFExtractor()
-    with console.status("[bold green]Extracting text via layout analysis..."):
-        parsed_records = layout_extractor.extract(pdf, category, meta_context)
-    console.print(f"Layout extractor produced [green]{len(parsed_records)}[/green] records.")
+    # Agentic extraction (Gemini full PDF + Qwen fallback)
+    console.print(f"\n[bold green]2. Running Agentic Text Extractor (Gemini full PDF + Qwen fallback)...[/bold green]")
+    extractor = AgenticExtractor()
+    with console.status("[bold green]Extracting text via agentic analysis..."):
+        parsed_records = extractor.extract(pdf, category, meta_context)
+    console.print(f"Agentic extractor produced [green]{len(parsed_records)}[/green] records.")
 
     if not parsed_records:
-        console.print(f"[bold red]Error:[/bold red] Layout extractor returned no records.")
+        console.print(f"[bold red]Error:[/bold red] Agentic extractor returned no records.")
         return None
 
     # Link Stage 3 Visuals Manifest if available
@@ -155,21 +169,52 @@ def extract_single(
         try:
             with open(visuals_manifest_path, "r", encoding="utf-8") as mf:
                 manifest_data = json.load(mf)
-            q_to_files = {}
+            # Group by (question, part)
+            q_to_stem_files: Dict[int, List[str]] = {}
+            q_part_to_files: Dict[Tuple[int, str], List[str]] = {}
             for entry in manifest_data:
                 q = entry.get("question")
-                if q is not None:
-                    q_to_files.setdefault(int(q), []).append(entry["relative_path"])
+                if q is None:
+                    continue
+                q_int = int(q)
+                target_type = entry.get("target_type")
+                target_label = entry.get("target_label")
+                part = entry.get("part") or ""
+                rp = entry.get("relative_path", "")
+                if target_type == "question" or (target_type is None and part in ("question", "stem", "")):
+                    q_to_stem_files.setdefault(q_int, []).append(rp)
+                else:
+                    clean_part = target_label if (target_type in ("part", "sub_part") and target_label) else re.sub(r"^(?:sub_)?part_", "", part)
+                    q_part_to_files.setdefault((q_int, clean_part), []).append(rp)
+
             patched_count = 0
             for record in parsed_records:
                 q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
                 m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
-                if m and int(m.group(1)) in q_to_files:
-                    imgs = q_to_files[int(m.group(1))]
-                    record["image"] = imgs if len(imgs) > 1 else imgs[0]
+                if not m:
+                    continue
+                q_num = int(m.group(1))
+                stem_files = q_to_stem_files.get(q_num)
+                if stem_files:
+                    record["image"] = stem_files if len(stem_files) > 1 else stem_files[0]
                     patched_count += 1
+                def _patch_tree_images(node: Dict[str, Any], is_top: bool = False) -> int:
+                    label_key = "part_label" if is_top else "sub_part_label"
+                    plabel = node.get(label_key, "")
+                    cnt = 0
+                    if plabel:
+                        part_files = q_part_to_files.get((q_num, plabel))
+                        if part_files:
+                            node["image"] = part_files if len(part_files) > 1 else part_files[0]
+                            cnt += 1
+                    for sp in node.get("sub_parts", []):
+                        cnt += _patch_tree_images(sp, is_top=False)
+                    return cnt
+
+                for part_rec in record.get("Parts", []):
+                    patched_count += _patch_tree_images(part_rec, is_top=True)
             if patched_count:
-                console.print(f"  [green]Linked {patched_count} visual figures from Stage 3 manifest.[/green]")
+                console.print(f"  [green]Linked {patched_count} visual entries from Stage 3 manifest.[/green]")
         except Exception as e:
             logging.getLogger(__name__).debug(f"Could not auto-link visuals manifest: {e}")
 
@@ -290,21 +335,25 @@ def classify_single(
 @app.command("extract")
 def extract_cmd(
     pdf_path: str = typer.Option(..., "--pdf", "-p", help="Path to raw PDF file"),
+    paper_type: Optional[str] = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
+    type: Optional[str] = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-extraction even if JSON exists"),
     log_level: str = typer.Option(settings.log_level, "--log-level", help="Logging level"),
 ):
-    """Extracts text layout and question structure from a single PDF into JSON (0 LLM tokens)."""
+    """Extracts text layout and question structure from a single PDF into JSON via Agentic LLM extraction."""
     setup_logging(log_level)
-    extract_single(Path(pdf_path), force=force)
+    extract_single(Path(pdf_path), force=force, paper_type=paper_type or type)
 
 
 @app.command("extract-dir")
 def extract_dir_cmd(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory containing PDF files"),
+    paper_type: Optional[str] = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
+    type: Optional[str] = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-extraction of existing files"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
-    """Extracts text layout and question structure for all PDFs in a directory (0 LLM tokens)."""
+    """Extracts text layout and question structure for all PDFs in a directory via Agentic LLM extraction."""
     setup_logging(log_level)
     dir_path = Path(directory_path)
     if not dir_path.exists() or not dir_path.is_dir():
@@ -324,9 +373,10 @@ def extract_dir_cmd(
     console.print(f"Found [bold cyan]{len(pdf_files)}[/bold cyan] PDF papers to extract.")
 
     count = 0
+    effective_type = paper_type or type
     for pdf in pdf_files:
         console.print(f"\n[bold magenta]Extracting File: {pdf.name}[/bold magenta]")
-        res = extract_single(pdf, force=force)
+        res = extract_single(pdf, force=force, paper_type=effective_type)
         if res is not None:
             count += 1
 
@@ -410,6 +460,8 @@ def classify_dir_cmd(
 @app.command("process")
 def process_cmd(
     pdf_path: str = typer.Option(..., "--pdf", "-p", help="Path to raw PDF file"),
+    paper_type: Optional[str] = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
+    type: Optional[str] = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
     syllabus_path: Optional[str] = typer.Option(None, "--syllabus", "-s", help="Path to syllabus CSV"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocessing even if output exists"),
     log_level: str = typer.Option(settings.log_level, "--log-level", help="Logging level"),
@@ -417,7 +469,7 @@ def process_cmd(
     """Combined pipeline: extracts layout text and classifies with Gemini in one step."""
     setup_logging(log_level)
     pdf = Path(pdf_path)
-    res = extract_single(pdf, force=force)
+    res = extract_single(pdf, force=force, paper_type=paper_type or type)
     if res is None:
         raise typer.Exit(code=1)
 
@@ -434,6 +486,8 @@ def process_cmd(
 @app.command("process-dir")
 def process_dir_cmd(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory containing PDF files"),
+    paper_type: Optional[str] = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
+    type: Optional[str] = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
     syllabus_path: Optional[str] = typer.Option(None, "--syllabus", "-s", help="Path to syllabus CSV"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocessing of existing files"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
@@ -459,10 +513,11 @@ def process_dir_cmd(
 
     count = 0
     last_successful_file: Optional[str] = None
+    effective_type = paper_type or type
     try:
         for pdf in pdf_files:
             console.print(f"\n[bold magenta]Processing File: {pdf.name}[/bold magenta]")
-            res = extract_single(pdf, force=force)
+            res = extract_single(pdf, force=force, paper_type=effective_type)
             if res is not None:
                 output_json, records, category, meta = res
                 if category in [PaperCategory.MCQ_QP, PaperCategory.ESSAY_QP]:

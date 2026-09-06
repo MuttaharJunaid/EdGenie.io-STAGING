@@ -49,5 +49,6 @@ docker-compose.override.yml
 # ── Misc ──
 *.log
 *.tmp
+scratch/
 scratch_rendered.html
 

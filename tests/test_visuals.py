@@ -131,9 +131,83 @@ class TestVisualExtractionIntegration:
             assert "question" in entry
             assert "bbox" in entry
             assert "filename" in entry
+            assert entry.get("target_type") in ("question", "part", "sub_part")
+            has_q = "_question_" in entry["filename"]
+            has_sub = "_sub_part_" in entry["filename"]
+            has_part = ("_part_" in entry["filename"]) and not has_sub
+            assert sum([has_q, has_part, has_sub]) == 1
+            if entry["target_type"] == "question":
+                assert has_q
+            elif entry["target_type"] == "part":
+                assert has_part
+                assert entry["target_label"] == entry["part"]
+            elif entry["target_type"] == "sub_part":
+                assert has_sub
+                assert entry["target_label"] == entry["part"]
+
             img_file = output_dir / entry["filename"]
             assert img_file.exists()
             assert img_file.stat().st_size > 0
+
+    def test_is_mcq_paper_detection(self):
+        """_is_mcq_paper must correctly distinguish real MCQ papers from uncaptioned written papers."""
+        extractor = CambridgeVisualExtractor()
+
+        math_pdf = Path("pipeline/storage/4024/2010/jun/4024_s10_qp_11.pdf")
+        if math_pdf.exists():
+            doc_math = fitz.open(str(math_pdf))
+            assert not extractor._is_mcq_paper(doc_math, math_pdf), "4024 written paper must NOT be classified as MCQ!"
+            doc_math.close()
+
+        mcq_pdf = Path("pipeline/storage/5054/2011/nov/5054_w11_qp_11.pdf")
+        if mcq_pdf.exists():
+            doc_mcq = fitz.open(str(mcq_pdf))
+            assert extractor._is_mcq_paper(doc_mcq, mcq_pdf), "5054/11 MCQ paper must be classified as MCQ!"
+            doc_mcq.close()
+
+        essay_pdf = Path("pipeline/storage/5054/2010/jun/5054_s10_qp_22.pdf")
+        if essay_pdf.exists():
+            doc_essay = fitz.open(str(essay_pdf))
+            assert not extractor._is_mcq_paper(doc_essay, essay_pdf), "5054/22 theory paper must NOT be classified as MCQ!"
+            doc_essay.close()
+
+    def test_extract_mcq_paper_real_pdf(self, tmp_path):
+        """MCQ extraction must recover labeled diagrams and filter pure answer tables."""
+        mcq_pdf = Path("pipeline/storage/5054/2011/nov/5054_w11_qp_11.pdf")
+        if not mcq_pdf.exists():
+            mcq_pdf = Path("pipeline/storage/5054/2010/jun/5054_s10_qp_11.pdf")
+        if not mcq_pdf.exists():
+            pytest.skip("No sample MCQ PDF available in storage.")
+
+        output_dir = tmp_path / "mcq_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(mcq_pdf, output_dir)
+
+        questions = {m["question"] for m in manifest}
+        assert len(manifest) >= 15
+        # Must extract annotated diagrams like Q4, Q6, Q40
+        for q in [4, 6, 40]:
+            if q in questions:
+                assert q in questions
+        for m in manifest:
+            assert "_question_" in m["filename"]
+            assert m["target_type"] == "question"
+
+    def test_extract_maths_paper_real_pdf(self, tmp_path):
+        """Maths uncaptioned written paper must extract sparse bearing and coordinate diagrams."""
+        math_pdf = Path("pipeline/storage/4024/2010/jun/4024_s10_qp_11.pdf")
+        if not math_pdf.exists():
+            pytest.skip("4024_s10_qp_11.pdf not found in storage.")
+
+        output_dir = tmp_path / "math_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(math_pdf, output_dir)
+
+        questions = {m["question"] for m in manifest}
+        # Q5 (bearing diagram with scattered dots), Q9, Q18, Q20 must all be extracted
+        for expected_q in [5, 9, 18, 20]:
+            assert expected_q in questions, f"Q{expected_q} was expected in extracted Maths diagrams!"
+
 
 
 class TestJsonPatching:
@@ -151,9 +225,9 @@ class TestJsonPatching:
             json.dump(records, f, indent=2)
 
         manifest = [
-            {"question": 1, "relative_path": "visuals/p2_q1_Fig1_1.png"},
-            {"question": 1, "relative_path": "visuals/p2_q1_Fig1_2.png"},
-            {"question": 2, "relative_path": "visuals/p6_q2_Fig2_1.png"},
+            {"question": 1, "target_type": "question", "relative_path": "visuals/p2_q1_question_Fig1_1.png"},
+            {"question": 1, "target_type": "question", "relative_path": "visuals/p2_q1_question_Fig1_2.png"},
+            {"question": 2, "target_type": "question", "relative_path": "visuals/p6_q2_question_Fig2_1.png"},
         ]
 
         _patch_question_json(json_file, manifest)
@@ -162,8 +236,174 @@ class TestJsonPatching:
             updated = json.load(f)
 
         assert updated[0]["image"] == [
-            "visuals/p2_q1_Fig1_1.png",
-            "visuals/p2_q1_Fig1_2.png",
+            "visuals/p2_q1_question_Fig1_1.png",
+            "visuals/p2_q1_question_Fig1_2.png",
         ]
-        assert updated[1]["image"] == "visuals/p6_q2_Fig2_1.png"
+        assert updated[1]["image"] == "visuals/p6_q2_question_Fig2_1.png"
         assert updated[2]["image"] is None
+
+    def test_patch_question_json_nested_subparts(self, tmp_path):
+        """_patch_question_json must patch parent parts and nested subparts recursively."""
+        json_file = tmp_path / "paper_nested.json"
+        records = [
+            {
+                "QuestionNumber": "5054/s10/qp/22/Q10",
+                "image": None,
+                "Parts": [
+                    {
+                        "part_label": "a",
+                        "image": None,
+                        "sub_parts": []
+                    },
+                    {
+                        "part_label": "b",
+                        "image": None,
+                        "sub_parts": [
+                            {"sub_part_label": "b(i)", "image": None, "sub_parts": []},
+                            {"sub_part_label": "b(ii)", "image": None, "sub_parts": []},
+                        ]
+                    }
+                ]
+            }
+        ]
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2)
+
+        manifest = [
+            {"question": 10, "target_type": "part", "target_label": "b", "part": "b", "relative_path": "visuals/p14_q10_part_b_Fig_10_1.png"},
+            {"question": 10, "target_type": "sub_part", "target_label": "b(ii)", "sub_part": "b(ii)", "relative_path": "visuals/p15_q10_sub_part_b(ii)_Fig_10_2.png"},
+        ]
+
+        _patch_question_json(json_file, manifest)
+
+        with open(json_file, "r", encoding="utf-8") as f:
+            updated = json.load(f)
+
+        q10 = updated[0]
+        # Part b should have Fig_10_1
+        assert q10["Parts"][1]["image"] == "visuals/p14_q10_part_b_Fig_10_1.png"
+        # Subpart b(i) has no image
+        assert q10["Parts"][1]["sub_parts"][0]["image"] is None
+        # Subpart b(ii) has Fig_10_2
+        assert q10["Parts"][1]["sub_parts"][1]["image"] == "visuals/p15_q10_sub_part_b(ii)_Fig_10_2.png"
+
+
+class TestTableVisualExtraction:
+    """Tests for table extraction in MCQ and essay papers."""
+
+    def test_mcq_table_questions_extracted(self, tmp_path):
+        """MCQ option and question tables (e.g. Q7, Q14, Q21, Q28, Q38 in 5054_s10_qp_11) must be extracted."""
+        mcq_pdf = Path("pipeline/storage/5054/2010/jun/5054_s10_qp_11.pdf")
+        if not mcq_pdf.exists():
+            pytest.skip("5054_s10_qp_11.pdf not found in storage.")
+
+        output_dir = tmp_path / "mcq_tables"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(mcq_pdf, output_dir, force_mcq=True)
+
+        extracted_qs = {m["question"] for m in manifest}
+        # Table questions that were previously dropped by density threshold
+        table_qs = [7, 14, 15, 21, 25, 28, 32, 34, 35, 38]
+        for q in table_qs:
+            assert q in extracted_qs, f"MCQ table question Q{q} was not extracted!"
+
+    def test_essay_uncaptioned_tables_extracted(self, tmp_path):
+        """Uncaptioned data tables in structured papers (e.g. 4024_s10_qp_21) must be extracted."""
+        math_pdf = Path("pipeline/storage/4024/2010/jun/4024_s10_qp_21.pdf")
+        if not math_pdf.exists():
+            pytest.skip("4024_s10_qp_21.pdf not found in storage.")
+
+        output_dir = tmp_path / "math_tables"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(math_pdf, output_dir, force_mcq=False)
+
+        assert len(manifest) >= 5
+        # Ensure filenames follow strict discriminator naming rule
+        for m in manifest:
+            fname = m["filename"]
+            assert any(tag in fname for tag in ["_question_", "_part_", "_sub_part_"]), f"Invalid tag in {fname}"
+
+    def test_extract_maths_paper_w10_all_visuals_and_part_naming(self, tmp_path):
+        """All diagrams, shapes, graphs, and tables in 4024_w10_qp_21 must be extracted with part-specific filenames."""
+        math_pdf = Path("pipeline/storage/4024/2010/nov/4024_w10_qp_21.pdf")
+        if not math_pdf.exists():
+            pytest.skip("4024_w10_qp_21.pdf not found in storage.")
+
+        output_dir = tmp_path / "w10_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(math_pdf, output_dir, force_mcq=False)
+
+        assert len(manifest) >= 11, f"Expected at least 11 visuals, got {len(manifest)}"
+
+        questions = {m["question"] for m in manifest}
+        for expected_q in [2, 3, 4, 6, 7, 8, 9, 10]:
+            assert expected_q in questions, f"Q{expected_q} was expected in extracted visuals!"
+
+        # Verify specific part-level naming
+        part_entries = [m for m in manifest if m.get("target_type") in ("part", "sub_part")]
+        assert len(part_entries) >= 10, "Expected at least 10 part-specific visual entries"
+        for m in part_entries:
+            fname = m["filename"]
+            plbl = m["target_label"]
+            assert f"_part_{plbl}_" in fname or f"_sub_part_{plbl}_" in fname, f"Filename {fname} missing part tag for {plbl}"
+            assert m["part"] == plbl
+
+    def test_extract_maths_paper_s10_q3_q5_q12_associations(self, tmp_path):
+        """4024_s10_qp_21 Q3 stem, Q5 parts a/b, and Q12 parts a/b and subpart b(ii) associations & clean crop."""
+        math_pdf = Path("pipeline/storage/4024/2010/jun/4024_s10_qp_21.pdf")
+        if not math_pdf.exists():
+            pytest.skip("4024_s10_qp_21.pdf not found in storage.")
+
+        output_dir = tmp_path / "s10_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(math_pdf, output_dir, force_mcq=False)
+
+        # 1. Q3 must be associated with question text (stem)
+        q3_entries = [m for m in manifest if m["question"] == 3]
+        assert len(q3_entries) == 1
+        assert q3_entries[0]["target_type"] == "question"
+        assert q3_entries[0]["target_label"] == "Q3"
+        assert "_question_" in q3_entries[0]["filename"]
+
+        # 2. Q5 must have 1st image -> part a, 2nd image -> part b
+        q5_entries = [m for m in manifest if m["question"] == 5]
+        assert len(q5_entries) == 2
+        assert q5_entries[0]["target_type"] == "part" and q5_entries[0]["target_label"] == "a"
+        assert "_part_a_" in q5_entries[0]["filename"]
+        assert q5_entries[1]["target_type"] == "part" and q5_entries[1]["target_label"] == "b"
+        assert "_part_b_" in q5_entries[1]["filename"]
+
+        # 3. Q12 must have part a, part b, and subpart b(ii) images
+        q12_entries = [m for m in manifest if m["question"] == 12]
+        assert len(q12_entries) == 3
+        assert q12_entries[0]["target_type"] == "part" and q12_entries[0]["target_label"] == "a"
+        assert "_part_a_" in q12_entries[0]["filename"]
+        assert q12_entries[1]["target_type"] == "part" and q12_entries[1]["target_label"] == "b"
+        assert "_part_b_" in q12_entries[1]["filename"]
+        assert q12_entries[2]["target_type"] == "sub_part" and q12_entries[2]["target_label"] == "b(ii)"
+        assert "_sub_part_b(ii)_" in q12_entries[2]["filename"]
+
+        # 4. Verify Q12 3rd image clean snipping:
+        # x0 >= 350 (no left prose bleed) and y1 >= 710 (captures Diagram II caption)
+        q12_d3_bbox = q12_entries[2]["bbox"]
+        assert q12_d3_bbox[0] >= 350.0, f"Left margin bled into prose text: x0={q12_d3_bbox[0]}"
+        assert q12_d3_bbox[3] >= 710.0, f"Diagram II caption cut off: y1={q12_d3_bbox[3]}"
+
+        # 5. Q2 table must be associated with question text (stem), not part_c
+        q2_stem_entries = [m for m in manifest if m["question"] == 2 and m["target_type"] == "question"]
+        assert len(q2_stem_entries) == 1, "Q2 shop table must be classified as question stem!"
+        assert "_question_" in q2_stem_entries[0]["filename"]
+
+        # 6. Q7 1st table must be associated with question text (stem), not part_b
+        q7_stem_entries = [m for m in manifest if m["question"] == 7 and m["target_type"] == "question"]
+        assert len(q7_stem_entries) == 1, "Q7 time table must be classified as question stem!"
+        assert "_question_" in q7_stem_entries[0]["filename"]
+
+        # Q7 2nd table is under part b
+        q7_part_b_entries = [m for m in manifest if m["question"] == 7 and m["target_type"] == "part" and m["target_label"] == "b"]
+        assert len(q7_part_b_entries) == 1, "Q7 cumulative frequency table must be classified as part b!"
+
+
+
+
+
