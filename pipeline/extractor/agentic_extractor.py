@@ -43,13 +43,26 @@ class AgenticExtractor:
         model_name: Optional[str] = None,
         fallback_model: Optional[str] = None,
     ):
-        self.model_name = model_name or getattr(settings, "llm_model", "gemini-3.6-flash")
+        self.model_name = model_name or getattr(settings, "llm_model", "gemini-2.5-flash")
         self.fallback_model = fallback_model or getattr(
             settings, "fallback_model", "qwen/qwen3-vl-8b-instruct"
         )
         self._gemini_client: Optional[genai.Client] = None
         self._openai_client: Optional[OpenAI] = None
         self._gemini_quota_exhausted: bool = False
+        self._gemini_cooldown_until: Optional[float] = None
+
+    @property
+    def is_gemini_available(self) -> bool:
+        """Returns whether Gemini is available, taking into account cooldown periods."""
+        if self._gemini_cooldown_until:
+            if time.time() < self._gemini_cooldown_until:
+                return False
+            else:
+                logger.info("Gemini cooldown period expired; re-enabling Gemini.")
+                self._gemini_cooldown_until = None
+                self._gemini_quota_exhausted = False
+        return not self._gemini_quota_exhausted
 
     def _get_gemini_client(self) -> genai.Client:
         if self._gemini_client is None:
@@ -378,6 +391,53 @@ CRITICAL RULES:
 
     # ── Full PDF Extraction (Gemini Primary) ──────────────────────────────
 
+    @staticmethod
+    def _prune_pdf_bytes(pdf_path: Path) -> bytes:
+        """
+        Removes blank and non-question pages using PyMuPDF before sending
+        to Gemini multimodal API to save 20-35% of token quota.
+        """
+        try:
+            doc = fitz.open(str(pdf_path))
+            if len(doc) <= 2:
+                with open(pdf_path, "rb") as f:
+                    return f.read()
+
+            pruned_doc = fitz.open()
+            pages_kept = 0
+            pruned_count = 0
+            for pno in range(len(doc)):
+                page = doc[pno]
+                text = page.get_text().strip()
+
+                # Never prune cover page (pno == 0) as it contains subject metadata / title
+                if pno > 0:
+                    has_blank_phrase = bool(re.search(r"\bBLANK\s+PAGE\b", text, re.IGNORECASE))
+                    has_marks = bool(re.search(r"\[\s*\d+\s*\]", text))
+                    has_question = bool(re.search(r"\b(?:Question\s+\d+|^\d+\s+[A-Z])\b", text, re.IGNORECASE | re.MULTILINE))
+
+                    is_purely_empty = not text and len(page.get_images()) == 0 and len(page.get_drawings()) == 0
+                    is_cambridge_blank = has_blank_phrase and not has_marks and not has_question
+
+                    if is_purely_empty or is_cambridge_blank:
+                        pruned_count += 1
+                        continue
+
+                pruned_doc.insert_pdf(doc, from_page=pno, to_page=pno)
+                pages_kept += 1
+
+            if pages_kept > 0 and pruned_count > 0:
+                logger.info(
+                    f"Pruned {pruned_count} blank page(s) from {pdf_path.name} "
+                    f"to optimize token quota (sending {pages_kept}/{len(doc)} pages)."
+                )
+                return pruned_doc.tobytes()
+        except Exception as e:
+            logger.debug(f"Failed to prune blank pages from {pdf_path.name} ({e}), using full PDF bytes.")
+
+        with open(pdf_path, "rb") as f:
+            return f.read()
+
     def _extract_with_gemini_full_pdf(
         self,
         pdf_path: Path,
@@ -387,17 +447,19 @@ CRITICAL RULES:
         """
         Extract complete PDF using Google Gemini in a single multimodal call,
         passing the full PDF bytes and receiving structured output for the entire paper.
+        Includes blank page pruning and exponential backoff retry on 429 rate limits.
         """
         client = self._get_gemini_client()
         schema, prompt = self._get_full_pdf_prompt(category, meta)
 
-        with open(pdf_path, "rb") as f:
-            pdf_bytes = f.read()
-
+        pdf_bytes = self._prune_pdf_bytes(pdf_path)
         part = types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
 
+        max_retries = getattr(settings, "gemini_max_retries", 3)
+        base_delay = getattr(settings, "gemini_retry_delay", 15.0)
+
         last_err = None
-        for attempt in range(1, 4):
+        for attempt in range(1, max_retries + 1):
             try:
                 response = client.models.generate_content(
                     model=self.model_name,
@@ -424,8 +486,25 @@ CRITICAL RULES:
             except Exception as e:
                 last_err = e
                 err_str = str(e).lower()
-                if "resource_exhausted" in err_str or "429" in err_str:
-                    raise e
+                is_429 = "resource_exhausted" in err_str or "429" in err_str or "quota" in err_str
+
+                if is_429:
+                    if attempt < max_retries:
+                        backoff = base_delay * (2 ** (attempt - 1))
+                        m = re.search(r"retry(?:\s+after|\s+in)?\s*[:\s]?\s*(\d+(?:\.\d+)?)\s*s", err_str)
+                        if m:
+                            backoff = max(float(m.group(1)) + 1.0, backoff)
+                        logger.warning(
+                            f"Gemini rate limit / 429 hit during full-PDF extraction of {pdf_path.name} "
+                            f"(attempt {attempt}/{max_retries}). Backing off for {backoff:.1f}s before retrying..."
+                        )
+                        time.sleep(backoff)
+                        self._gemini_client = None  # Reset client to ensure clean session
+                        client = self._get_gemini_client()
+                        continue
+                    else:
+                        logger.error(f"Gemini 429/quota persisted after {max_retries} attempts for {pdf_path.name}.")
+                        raise e
 
                 is_transient = any(
                     kw in err_str
@@ -442,13 +521,14 @@ CRITICAL RULES:
                         "500",
                     ]
                 )
-                if is_transient and attempt < 3:
+                if is_transient and attempt < max_retries:
                     logger.warning(
-                        f"Transient Gemini connection error during full-PDF extraction (attempt {attempt}/3): {e}. "
+                        f"Transient Gemini connection error during full-PDF extraction (attempt {attempt}/{max_retries}): {e}. "
                         f"Retrying in {attempt * 2}s..."
                     )
                     time.sleep(attempt * 2)
                     self._gemini_client = None
+                    client = self._get_gemini_client()
                     continue
                 break
 
@@ -509,9 +589,26 @@ CRITICAL RULES:
             except Exception as e:
                 last_err = e
                 err_str = str(e).lower()
-                # If quota exhausted, don't wait — immediately fall back to Qwen
-                if "resource_exhausted" in err_str or "429" in err_str:
-                    raise e
+                is_429 = "resource_exhausted" in err_str or "429" in err_str or "quota" in err_str
+
+                if is_429:
+                    max_retries = getattr(settings, "gemini_max_retries", 3)
+                    base_delay = getattr(settings, "gemini_retry_delay", 15.0)
+                    if attempt < max_retries:
+                        backoff = base_delay * (2 ** (attempt - 1))
+                        m = re.search(r"retry(?:\s+after|\s+in)?\s*[:\s]?\s*(\d+(?:\.\d+)?)\s*s", err_str)
+                        if m:
+                            backoff = max(float(m.group(1)) + 1.0, backoff)
+                        logger.warning(
+                            f"Gemini rate limit / 429 on page {pno + 1} (attempt {attempt}/{max_retries}). "
+                            f"Backing off for {backoff:.1f}s before retrying..."
+                        )
+                        time.sleep(backoff)
+                        self._gemini_client = None
+                        client = self._get_gemini_client()
+                        continue
+                    else:
+                        raise e
 
                 is_transient = any(
                     kw in err_str
@@ -535,6 +632,7 @@ CRITICAL RULES:
                     )
                     time.sleep(attempt * 2)
                     self._gemini_client = None  # Reset client to recreate fresh TLS connection
+                    client = self._get_gemini_client()
                     continue
                 break
 
@@ -1029,7 +1127,7 @@ CRITICAL RULES:
         pdf_path = Path(pdf_path)
 
         # ── Primary: Full PDF extraction with Gemini ───────────────────────
-        if not self._gemini_quota_exhausted:
+        if self.is_gemini_available:
             try:
                 logger.info(f"Extracting complete PDF with Gemini ({self.model_name}): {pdf_path.name}...")
                 raw_records = self._extract_with_gemini_full_pdf(pdf_path, category, meta_context)
@@ -1048,9 +1146,13 @@ CRITICAL RULES:
                     logger.warning(f"Gemini returned 0 records for {pdf_path.name}. Falling back to Qwen...")
             except Exception as e:
                 err_str = str(e).lower()
-                if "resource_exhausted" in err_str or "429" in err_str:
-                    logger.warning(f"Gemini quota exhausted ({e}). Falling back to Qwen ({self.fallback_model})...")
+                if "resource_exhausted" in err_str or "429" in err_str or "quota" in err_str:
+                    logger.warning(
+                        f"Gemini quota exhausted ({e}). Cooling down for 3 minutes before retrying Gemini. "
+                        f"Falling back to Qwen ({self.fallback_model}) for current paper..."
+                    )
                     self._gemini_quota_exhausted = True
+                    self._gemini_cooldown_until = time.time() + 180.0
                 else:
                     logger.warning(f"Gemini extraction failed ({e}). Falling back to Qwen ({self.fallback_model})...")
 

@@ -1024,6 +1024,118 @@ def test_mark_scheme_empty_answer_text_and_gibberish_stripping():
     assert res_no_parts[0]["Answer_text"] == "Complete solution without parts"
 
 
+def test_prune_pdf_bytes_removes_blank_pages(tmp_path):
+    """Verify that _prune_pdf_bytes strips blank pages while preserving content pages."""
+    import fitz
+    from pipeline.extractor.agentic_extractor import AgenticExtractor
+
+    pdf_file = tmp_path / "sample_with_blanks.pdf"
+    doc = fitz.open()
+
+    # Page 1: Cover page
+    p1 = doc.new_page()
+    p1.insert_text((50, 50), "CAMBRIDGE EXAMINATION - MATHEMATICS")
+
+    # Page 2: Question 1
+    p2 = doc.new_page()
+    p2.insert_text((50, 50), "Question 1: Calculate x [2]")
+
+    # Page 3: Official BLANK PAGE
+    p3 = doc.new_page()
+    p3.insert_text((50, 50), "BLANK PAGE\n© UCLES 2010")
+
+    # Page 4: Purely empty page
+    p4 = doc.new_page()
+
+    # Page 5: Question 2
+    p5 = doc.new_page()
+    p5.insert_text((50, 50), "Question 2: Solve y [3]")
+
+    doc.save(str(pdf_file))
+    doc.close()
+
+    pruned_bytes = AgenticExtractor._prune_pdf_bytes(pdf_file)
+    pruned_doc = fitz.open(stream=pruned_bytes, filetype="pdf")
+
+    # Should keep pages 1, 2, and 5 (total 3 pages), pruning pages 3 and 4
+    assert len(pruned_doc) == 3
+    all_text = " ".join([page.get_text() for page in pruned_doc])
+    assert "Question 1" in all_text
+    assert "Question 2" in all_text
+    assert "BLANK PAGE" not in all_text
+    pruned_doc.close()
+
+
+def test_classifier_agent_prompt_prefix_caching_structure():
+    """Verify that static syllabus and instructions come before dynamic question data in ClassifierAgent prompt."""
+    from pipeline.extractor.classifier_agent import ClassifierAgent
+    from pipeline.extractor.paper_type_detector import PaperCategory
+
+    agent = ClassifierAgent()
+    syllabus = "UNIT 1: Number\n1.1 Primes and factors"
+    records = [{"QuestionNumber": "Q1", "Question_text": "Find prime factors of 24."}]
+    meta = {"year": 2023, "session": "jun", "variant": "11", "subject_code": "4024"}
+
+    prompt = agent._build_prompt(records, syllabus, PaperCategory.ESSAY_QP, meta)
+
+    # Syllabus and static instructions must appear BEFORE dynamic questions JSON and metadata
+    syllabus_pos = prompt.find("OFFICIAL SYLLABUS:")
+    instructions_pos = prompt.find("CLASSIFICATION INSTRUCTIONS:")
+    dynamic_pos = prompt.find("DYNAMIC PAPER DATA & QUESTIONS TO CLASSIFY:")
+    json_pos = prompt.find("PRE-EXTRACTED QUESTION JSON:")
+
+    assert syllabus_pos != -1
+    assert instructions_pos != -1
+    assert dynamic_pos != -1
+    assert json_pos != -1
+
+    assert syllabus_pos < dynamic_pos
+    assert instructions_pos < dynamic_pos
+    assert dynamic_pos < json_pos
+
+
+def test_gemini_429_backoff_and_retry(tmp_path):
+    """Verify that AgenticExtractor retries on 429 rate limit with backoff and succeeds on subsequent attempt."""
+    import json
+    from pipeline.extractor.agentic_extractor import AgenticExtractor
+    from pipeline.extractor.paper_type_detector import PaperCategory
+    from unittest.mock import MagicMock, patch
+
+    extractor = AgenticExtractor()
+    mock_client = MagicMock()
+    mock_models = MagicMock()
+    mock_client.models = mock_models
+    extractor._get_gemini_client = MagicMock(return_value=mock_client)
+
+    # Create dummy PDF
+    import fitz
+    doc = fitz.open()
+    p = doc.new_page()
+    p.insert_text((50, 50), "Question 1: Test [1]")
+    pdf_file = tmp_path / "test_429.pdf"
+    doc.save(str(pdf_file))
+    doc.close()
+
+    mock_resp = MagicMock()
+    mock_resp.text = json.dumps({"questions": [{"QuestionNumber": "Q1", "Question_text": "Test", "Marks": 1}]})
+
+    # Attempt 1: 429 Resource Exhausted, Attempt 2: Success
+    mock_models.generate_content.side_effect = [
+        Exception("429 Resource Exhausted: Please retry after 0.1s"),
+        mock_resp,
+    ]
+
+    with patch("time.sleep", return_value=None):
+        results = extractor._extract_with_gemini_full_pdf(
+            pdf_file, PaperCategory.ESSAY_QP, {"session": "jun", "variant": "11", "year": "2023"}
+        )
+
+    assert mock_models.generate_content.call_count == 2
+    assert len(results) == 1
+    assert results[0]["QuestionNumber"] == "Q1"
+
+
+
 
 
 

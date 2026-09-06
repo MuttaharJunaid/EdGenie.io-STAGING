@@ -19,6 +19,8 @@ No raw PDF bytes are sent, minimizing LLM token consumption.
 import json
 import logging
 import os
+import re
+import time
 from typing import Any, Dict, List, Optional
 
 import dotenv
@@ -96,40 +98,25 @@ class ClassifierAgent:
 
         is_mcq = category == PaperCategory.MCQ_QP
         paper_type = "Multiple-Choice (MCQ)" if is_mcq else "Essay / Structured Theory"
-
-        # Provide clean JSON of the pre-extracted questions
         records_json = json.dumps(records, indent=2, ensure_ascii=False)
 
         prompt = f"""You are a senior educational examiner for O/A-Levels and a curriculum classification specialist.
 
-You are provided with:
-1. A JSON file of questions pre-extracted from a Cambridge {paper_type} past paper.
-2. The official Cambridge syllabus for this subject.
-
 YOUR ROLE & WORKFLOW:
-The text extraction has already been completed and saved to the JSON file. Your work is to take in the pre-extracted JSON file and the syllabus, analyze each question's text and content, and fill in the topic classification, difficulty level, and command words for every question.
-
-METADATA CONTEXT:
-- Year: {year}
-- Session: {session}
-- Variant: {variant}
-- Subject Code: {subject_code}
+The text extraction has already been completed and saved to JSON format. Your task is to analyze each question's text and content against the official syllabus, and produce the topic classification, difficulty level, and command words for every question.
 
 OFFICIAL SYLLABUS:
 {syllabus_text}
 
-PRE-EXTRACTED QUESTION JSON:
-{records_json}
-
 CLASSIFICATION INSTRUCTIONS:
 1. QUESTION MAPPING:
-   For every question in the input JSON, locate its `QuestionNumber` (e.g. "{session}/{variant}/{year}/Q1") and use it as `question_number`.
+   For every question in the input JSON, locate its `QuestionNumber` (e.g. "{session}/{variant}/{year}/Q1" or "Q1") and use it as `question_number`.
 
 2. TOPIC CLASSIFICATION (using the provided syllabus):
    - `Unit`: The Unit number from the syllabus (e.g. "1", "2").
    - `Topic`: The Topic number from the syllabus (e.g. "1.1", "2.3").
    - `Topic_name`: The exact Topic name from the syllabus (e.g. "Physical Quantities and Units").
-   - `Sub_topic`: A list of the specific sub-topic learning objectives tested by this question (e.g. ["Scalars and vectors", "Speed and velocity"]).
+   - `Sub_topic`: A list of specific sub-topic learning objectives tested by this question (e.g. ["Scalars and vectors", "Speed and velocity"]).
 
 3. DIFFICULTY ANALYSIS:
    - `Difficulty_score`: Integer from 1 to 10 based on cognitive depth, multi-step calculations, and concept complexity.
@@ -140,6 +127,17 @@ CLASSIFICATION INSTRUCTIONS:
    - Output exactly ONE classification entry per question in the `classifications` array.
    - Do NOT omit any questions.
    - Output ONLY the requested classification fields (do not modify or re-output question text or options).
+
+---
+DYNAMIC PAPER DATA & QUESTIONS TO CLASSIFY:
+- Paper Type: {paper_type}
+- Subject Code: {subject_code}
+- Year: {year}
+- Session: {session}
+- Variant: {variant}
+
+PRE-EXTRACTED QUESTION JSON:
+{records_json}
 """
         return prompt
 
@@ -198,29 +196,60 @@ CLASSIFICATION INSTRUCTIONS:
             raise RuntimeError("No valid API key (GOOGLE_API_KEY or OPENROUTER_API_KEY) found for classification pass.")
 
     def _classify_with_gemini(self, prompt: str) -> Dict[str, Dict[str, Any]]:
-        """Calls Gemini with structured output for question classification."""
+        """Calls Gemini with structured output for question classification with 429 exponential backoff."""
         client = genai.Client(api_key=self.api_key)
         model = self.model_name or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
         logger.info(f"Classifying questions via Gemini model: {model}")
 
-        response = client.models.generate_content(
-            model=model,
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ClassificationContainer,
-                temperature=0.1,
-                max_output_tokens=65535,
-            ),
-        )
+        max_retries = getattr(settings, "gemini_max_retries", 3)
+        base_delay = getattr(settings, "gemini_retry_delay", 15.0)
 
-        raw = response.text
-        if not raw or not raw.strip():
-            raise ValueError("Gemini returned an empty classification response.")
+        last_err = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=ClassificationContainer,
+                        temperature=0.1,
+                        max_output_tokens=65535,
+                    ),
+                )
 
-        data = json.loads(raw)
-        classifications = data.get("classifications", [])
-        return {c["question_number"]: c for c in classifications}
+                raw = response.text
+                if not raw or not raw.strip():
+                    raise ValueError("Gemini returned an empty classification response.")
+
+                data = json.loads(raw)
+                classifications = data.get("classifications", [])
+                return {c["question_number"]: c for c in classifications}
+            except Exception as e:
+                last_err = e
+                err_str = str(e).lower()
+                is_429 = "resource_exhausted" in err_str or "429" in err_str or "quota" in err_str
+                if is_429:
+                    if attempt < max_retries:
+                        backoff = base_delay * (2 ** (attempt - 1))
+                        m = re.search(r"retry(?:\s+after|\s+in)?\s*[:\s]?\s*(\d+(?:\.\d+)?)\s*s", err_str)
+                        if m:
+                            backoff = max(float(m.group(1)) + 1.0, backoff)
+                        logger.warning(
+                            f"Gemini rate limit / 429 hit during classification (attempt {attempt}/{max_retries}). "
+                            f"Backing off for {backoff:.1f}s before retrying..."
+                        )
+                        time.sleep(backoff)
+                        client = genai.Client(api_key=self.api_key)
+                        continue
+                    else:
+                        logger.error(f"Gemini classification 429 persisted after {max_retries} attempts.")
+                        raise e
+                raise e
+
+        if last_err is not None:
+            raise last_err
+        return {}
 
     def _classify_with_openrouter(self, prompt: str) -> Dict[str, Dict[str, Any]]:
         """Fallback to OpenRouter with exact same prompt and schema."""

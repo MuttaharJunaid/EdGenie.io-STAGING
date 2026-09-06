@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import json
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import typer
@@ -351,6 +352,7 @@ def extract_dir_cmd(
     paper_type: Optional[str] = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
     type: Optional[str] = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-extraction of existing files"),
+    delay: float = typer.Option(settings.inter_paper_delay, "--delay", help="Pacing delay (seconds) between papers to stay under API rate limits"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
     """Extracts text layout and question structure for all PDFs in a directory via Agentic LLM extraction."""
@@ -374,8 +376,11 @@ def extract_dir_cmd(
 
     count = 0
     effective_type = paper_type or type
-    for pdf in pdf_files:
-        console.print(f"\n[bold magenta]Extracting File: {pdf.name}[/bold magenta]")
+    for i, pdf in enumerate(pdf_files):
+        if i > 0 and delay > 0:
+            console.print(f"[dim]Pacing delay: waiting {delay:.1f}s before next extraction...[/dim]")
+            time.sleep(delay)
+        console.print(f"\n[bold magenta]Extracting File ({i + 1}/{len(pdf_files)}): {pdf.name}[/bold magenta]")
         res = extract_single(pdf, force=force, paper_type=effective_type)
         if res is not None:
             count += 1
@@ -414,6 +419,7 @@ def classify_dir_cmd(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory containing PDF or JSON files"),
     syllabus_path: Optional[str] = typer.Option(None, "--syllabus", "-s", help="Path to syllabus CSV"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-classification"),
+    delay: float = typer.Option(settings.inter_paper_delay, "--delay", help="Pacing delay (seconds) between papers to stay under API rate limits"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
     """Classifies all pre-extracted question JSONs in a directory against the syllabus."""
@@ -440,8 +446,11 @@ def classify_dir_cmd(
     count = 0
     last_successful_file: Optional[str] = None
     try:
-        for target in json_files:
-            console.print(f"\n[bold magenta]Classifying File: {target.name}[/bold magenta]")
+        for i, target in enumerate(json_files):
+            if i > 0 and delay > 0:
+                console.print(f"[dim]Pacing delay: waiting {delay:.1f}s before next classification...[/dim]")
+                time.sleep(delay)
+            console.print(f"\n[bold magenta]Classifying File ({i + 1}/{len(json_files)}): {target.name}[/bold magenta]")
             if classify_single(target, syllabus_path=syllabus_path, force=force):
                 count += 1
                 last_successful_file = target.name
