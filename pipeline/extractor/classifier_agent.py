@@ -64,25 +64,18 @@ class ClassificationContainer(BaseModel):
 class ClassifierAgent:
     """
     Takes pre-extracted question JSON records from text extraction and the syllabus,
-    then uses Gemini (with OpenRouter fallback) to fill in topic classification,
-    difficulty level, and command words for every question.
+    then uses OpenRouter (primary 1st choice) with Google Gemini (fallback) to fill in
+    topic classification, difficulty level, and command words for every question.
     """
 
     def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
-        self.provider = provider or getattr(settings, "llm_provider", "google")
+        self.provider = provider or getattr(settings, "classification_provider", "openrouter")
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        self.google_api_key = os.getenv("GOOGLE_API_KEY")
         self.model_name = (
             model_name
-            or os.getenv("GEMINI_MODEL")
-            or getattr(settings, "llm_model", None)
-            or "gemini-2.5-flash"
+            or getattr(settings, "openrouter_model", "google/gemini-2.5-flash")
         )
-        if not self.model_name:
-            self.model_name = "gemini-2.5-flash"
-
-        self.api_key = os.getenv("GOOGLE_API_KEY")
-
-        if self.provider == "google" and not self.api_key and os.getenv("OPENROUTER_API_KEY"):
-            self.provider = "openrouter"
 
     def _build_prompt(
         self,
@@ -149,7 +142,7 @@ PRE-EXTRACTED QUESTION JSON:
         meta_context: Dict[str, Any],
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Send extracted records + syllabus to Gemini (with OpenRouter fallback) for classification.
+        Send extracted records + syllabus to OpenRouter (1st choice, with Gemini fallback) for classification.
         Returns a dict: {question_number: {Unit, Topic, Topic_name, Sub_topic,
                                             Difficulty_score, Difficulty_label, Command_words}}
         """
@@ -159,46 +152,37 @@ PRE-EXTRACTED QUESTION JSON:
 
         prompt = self._build_prompt(records, syllabus_text, category, meta_context)
 
-        # Primary attempt: Google Gemini
-        if self.provider == "google" and self.api_key:
+        # ── 1st Choice: OpenRouter ──────────────────────────────────────────
+        if (self.provider == "openrouter" or self.openrouter_api_key) and self.openrouter_api_key:
             try:
-                return self._classify_with_gemini(prompt)
-            except Exception as gemini_err:
-                err_str = str(gemini_err).lower()
-                is_quota = any(q in err_str for q in ["resource_exhausted", "429", "quota", "rate limit", "credits"])
-                logger.warning(
-                    f"Gemini classification pass failed ({gemini_err}). "
-                    "Attempting fallback to OpenRouter..."
-                )
-                if os.getenv("OPENROUTER_API_KEY"):
-                    try:
-                        return self._classify_with_openrouter(prompt)
-                    except Exception as or_err:
-                        or_err_str = str(or_err).lower()
-                        if is_quota or any(q in or_err_str for q in ["resource_exhausted", "429", "quota", "credits", "402"]):
-                            raise QuotaExceededError(f"Gemini & OpenRouter quotas exhausted: {gemini_err} | {or_err}") from or_err
-                        raise or_err
-                else:
-                    if is_quota:
-                        raise QuotaExceededError(f"Gemini quota exceeded: {gemini_err}") from gemini_err
-                    logger.error("OPENROUTER_API_KEY not set; cannot fallback to OpenRouter.")
-                    raise gemini_err
-
-        elif self.provider == "openrouter" or os.getenv("OPENROUTER_API_KEY"):
-            try:
+                logger.info("Running primary classification pass via OpenRouter (1st choice)...")
                 return self._classify_with_openrouter(prompt)
             except Exception as or_err:
-                or_err_str = str(or_err).lower()
-                if any(q in or_err_str for q in ["resource_exhausted", "429", "quota", "credits", "402"]):
-                    raise QuotaExceededError(f"OpenRouter quota exhausted: {or_err}") from or_err
-                raise or_err
+                logger.warning(
+                    f"OpenRouter classification pass failed ({or_err}). "
+                    "Attempting fallback to Google Gemini..."
+                )
+                if self.google_api_key:
+                    try:
+                        return self._classify_with_gemini(prompt)
+                    except Exception as gemini_err:
+                        raise QuotaExceededError(
+                            f"Both OpenRouter and Gemini classification failed: {or_err} | {gemini_err}"
+                        ) from gemini_err
+                else:
+                    raise or_err
+
+        # ── Fallback / Direct: Google Gemini ────────────────────────────────
+        elif self.google_api_key:
+            logger.info("Running classification pass via Google Gemini...")
+            return self._classify_with_gemini(prompt)
         else:
-            raise RuntimeError("No valid API key (GOOGLE_API_KEY or OPENROUTER_API_KEY) found for classification pass.")
+            raise RuntimeError("No valid API key (OPENROUTER_API_KEY or GOOGLE_API_KEY) found for classification pass.")
 
     def _classify_with_gemini(self, prompt: str) -> Dict[str, Dict[str, Any]]:
         """Calls Gemini with structured output for question classification with 429 exponential backoff."""
-        client = genai.Client(api_key=self.api_key)
-        model = self.model_name or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+        client = genai.Client(api_key=self.google_api_key)
+        model = os.getenv("GEMINI_MODEL") or getattr(settings, "gemini_classification_model", "gemini-2.5-flash")
         logger.info(f"Classifying questions via Gemini model: {model}")
 
         max_retries = getattr(settings, "gemini_max_retries", 3)
@@ -240,7 +224,7 @@ PRE-EXTRACTED QUESTION JSON:
                             f"Backing off for {backoff:.1f}s before retrying..."
                         )
                         time.sleep(backoff)
-                        client = genai.Client(api_key=self.api_key)
+                        client = genai.Client(api_key=self.google_api_key)
                         continue
                     else:
                         logger.error(f"Gemini classification 429 persisted after {max_retries} attempts.")
@@ -252,9 +236,9 @@ PRE-EXTRACTED QUESTION JSON:
         return {}
 
     def _classify_with_openrouter(self, prompt: str) -> Dict[str, Dict[str, Any]]:
-        """Fallback to OpenRouter with exact same prompt and schema."""
-        logger.info("Running classification pass via OpenRouter fallback...")
-        api_key = os.getenv("OPENROUTER_API_KEY")
+        """Calls OpenRouter (1st choice) with exact same prompt and schema."""
+        logger.info("Calling OpenRouter for question classification...")
+        api_key = self.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable not set.")
 

@@ -403,6 +403,41 @@ class TestTableVisualExtraction:
         q7_part_b_entries = [m for m in manifest if m["question"] == 7 and m["target_type"] == "part" and m["target_label"] == "b"]
         assert len(q7_part_b_entries) == 1, "Q7 cumulative frequency table must be classified as part b!"
 
+    def test_extract_w10_qp_23_circuit_and_no_text_bleed(self, tmp_path):
+        """Verify 5054_w10_qp_23 extracts Fig 10.1 and 10.2 without text bleed, and snips Q11(c)(iii) circuit."""
+        pdf_path = Path("pipeline/storage/5054/2010/nov/5054_w10_qp_23.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5054_w10_qp_23.pdf not found in storage.")
+
+        output_dir = tmp_path / "w10_23_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # 1. Fig. 10.1 (Page 13, Q10): y0 must be >= 110.0 (no bleed from 'force on the bus...')
+        # and x1 must be < 500.0 (no PapaCambridge watermark in top-right)
+        fig10_1 = [m for m in manifest if m.get("caption") == "Fig. 10.1"]
+        assert len(fig10_1) == 1
+        bbox10_1 = fig10_1[0]["bbox"]
+        assert bbox10_1[1] >= 110.0, f"Fig 10.1 bled into top text: y0={bbox10_1[1]}"
+        assert bbox10_1[2] < 500.0, f"Fig 10.1 captured top-right watermark: x1={bbox10_1[2]}"
+
+        # 2. Fig. 10.2 (Page 14, Q10 c(i)): y0 must be >= 370.0 (no bleed from 'into the stationary bus.')
+        fig10_2 = [m for m in manifest if m.get("caption") == "Fig. 10.2"]
+        assert len(fig10_2) == 1
+        bbox10_2 = fig10_2[0]["bbox"]
+        assert bbox10_2[1] >= 370.0, f"Fig 10.2 bled into top text: y0={bbox10_2[1]}"
+        assert bbox10_2[3] <= 629.0, f"Fig 10.2 bled into bottom mark [3]: y1={bbox10_2[3]}"
+
+        # 3. Uncaptioned Circuit Visual on Page 16 (Q11 c(iii))
+        q11_circuit = [m for m in manifest if m["page"] == 16 and m["question"] == 11]
+        assert len(q11_circuit) == 1, "Expected uncaptioned circuit visual on page 16 to be extracted!"
+        entry = q11_circuit[0]
+        assert entry["target_type"] == "sub_part"
+        assert entry["target_label"] == "c(iii)"
+        assert "fig" not in entry["filename"].lower(), f"Uncaptioned visual filename shouldn't contain fig: {entry['filename']}"
+        assert "_sub_part_c(iii)_" in entry["filename"]
+
+
 
 
 

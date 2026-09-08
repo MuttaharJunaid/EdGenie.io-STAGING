@@ -46,14 +46,17 @@ DIAGRAM_CAPTION_PATTERN = re.compile(
 LEFT_MARGIN_X = 60.0       # question numbers sit left of this
 HEADER_Y = 40.0            # page-number-in-header sits above this; ignore it
 MAX_LINE_HEIGHT = 45.0     # guard against rotated page-tall margin text (e.g. 'DO NOT WRITE IN THIS MARGIN')
-PROSE_MIN_WIDTH = 150.0    # a "real sentence" line is at least this wide
-PROSE_MAX_X0 = 110.0       # ...and starts within the normal text column
+PROSE_MIN_WIDTH = 120.0    # a "real sentence" line is at least this wide
+PROSE_MAX_X0 = 135.0       # allow indented question sub-part lines (which sit around x0 ≈ 115-125 pt)
 PROSE_CHAIN_GAP = 20.0     # max vertical gap between lines of one paragraph
 CONTENT_MAX_X = 522.0      # "For Examiner's Use" sidebar starts right of this
 MIN_STROKE_LEN = 1.0       # drop sub-pixel path fragments, keep dots and thin long lines
 GAP_BREAK = 40.0           # blank vertical gap (pt) that splits a figure into bands
 STITCH_GAP_PX = 16         # visual gap between stitched bands in the output
 PART_LABEL = re.compile(r"^\s*\(([a-z]|i{1,3}v?|vi{0,3}|ix|x{0,3})\)\s*", re.IGNORECASE)
+MARK_INLINE_PATTERN = re.compile(r"\[\s*\d+\s*\]|\[\s*Total", re.IGNORECASE)
+PRINT_X0, PRINT_X1 = 35.0, 540.0
+PRINT_Y0, PRINT_Y1 = 45.0, 785.0
 
 # Hierarchical part detection — mirrors the one in pymupdf_extractor.py
 _VIS_PART_RE = re.compile(
@@ -260,11 +263,10 @@ class CambridgeVisualExtractor:
         reliable watermark detection.
         """
         xref_map: Dict[Tuple[float, float, float, float], int] = {}
-        image_infos = page.get_image_info()
-        xobjects = page.get_images(full=True)  # same order as get_image_info()
-        for img_info, xobj in zip(image_infos, xobjects):
-            bbox_key = tuple(img_info["bbox"])
-            xref_map[bbox_key] = xobj[0]  # xobj[0] is the xref
+        for img_info in page.get_image_info(xrefs=True):
+            xref = img_info.get("xref", 0)
+            if xref:
+                xref_map[tuple(img_info["bbox"])] = xref
         return xref_map
 
     @staticmethod
@@ -423,7 +425,7 @@ class CambridgeVisualExtractor:
 
     def find_upper_bound(self, caption: Dict[str, Any], lines: List[Line], page_top: float = 40.0) -> float:
         """
-        Walk upward from caption to nearest preceding sentence or caption.
+        Walk upward from caption to nearest preceding sentence, question part, or caption.
         Chains through short wrapped-tail lines instead of stopping at narrow lines.
         """
         above = [ln for ln in lines if ln.bbox.y1 <= caption["bbox"].y0 + 0.5]
@@ -432,10 +434,11 @@ class CambridgeVisualExtractor:
         i = n - 1
         while i >= 0:
             ln = above[i]
-            if self.caption_pattern.match(ln.text.strip()):
+            t = ln.text.strip()
+            if self.caption_pattern.match(t):
                 return ln.bbox.y1
             if ln.bbox.x0 <= self.prose_max_x0:
-                if ln.width >= self.prose_min_width:
+                if ln.width >= self.prose_min_width or t.endswith((".", ":", "?")) or _VIS_PART_RE.match(t) or PART_LABEL.match(t):
                     return ln.bbox.y1
                 # Check if this short line is a wrapped tail of a real paragraph
                 j = i - 1
@@ -444,7 +447,8 @@ class CambridgeVisualExtractor:
                     gap = above[j + 1].bbox.y0 - prev.bbox.y1
                     if gap > self.prose_chain_gap or prev.bbox.x0 > self.prose_max_x0:
                         break
-                    if prev.width >= self.prose_min_width:
+                    prev_t = prev.text.strip()
+                    if prev.width >= self.prose_min_width or prev_t.endswith((".", ":", "?")) or _VIS_PART_RE.match(prev_t):
                         return ln.bbox.y1
                     j -= 1
             i -= 1
@@ -934,12 +938,15 @@ class CambridgeVisualExtractor:
             # 2. Filter embedded images
             raster_xref_map = self._build_raster_xref_map(page)
             filtered_rasters = []
-            for img in page.get_image_info():
+            for img in page.get_image_info(xrefs=True):
                 r = fitz.Rect(img["bbox"]) & page.rect
                 if r.x1 <= PRINT_X0 or r.x0 >= PRINT_X1 or r.y1 <= PRINT_Y0 or r.y0 >= PRINT_Y1:
                     continue
+                # Exclude PapaCambridge diagonal ribbon in top-right corner
+                if r.x0 >= 380.0 and r.y0 <= 20.0 and r.y1 <= 220.0 and r.x1 >= 570.0:
+                    continue
                 bbox_key = tuple(img["bbox"])
-                xref = raster_xref_map.get(bbox_key)
+                xref = img.get("xref") or raster_xref_map.get(bbox_key)
                 if xref and self._is_papacambridge_ribbon(doc, xref):
                     continue
                 filtered_rasters.append(r)
@@ -990,18 +997,36 @@ class CambridgeVisualExtractor:
                             # Major vertical overlap or enclosed in band
                             if overlap_h / max(r.height, 1.0) >= 0.25 or (r.y0 >= upper - 8 and r.y1 <= lower + 8):
                                 if nearest_caption_idx(r.x0 + r.width / 2) == ci:
-                                    clipped = r & fitz.Rect(PRINT_X0, upper - 5, PRINT_X1, lower + 5)
-                                    claimed_boxes.append(clipped)
-                                    claimed[gi] = True
+                                    clipped = r & fitz.Rect(PRINT_X0, upper, PRINT_X1, lower)
+                                    if not clipped.is_empty:
+                                        claimed_boxes.append(clipped)
+                                        claimed[gi] = True
 
                     for li, ln in enumerate(lines):
                         if li in claimed_lines:
                             continue
+                        t = ln.text.strip()
                         if (
-                            ln.bbox.y0 >= upper - 2
-                            and ln.bbox.y1 <= lower + 2
-                            and not self.caption_pattern.match(ln.text.strip())
+                            ln.bbox.y0 >= upper - 0.5
+                            and ln.bbox.y1 <= lower + 0.5
+                            and not self.caption_pattern.match(t)
                         ):
+                            # Exclude margin question numbers
+                            if ln.bbox.x1 <= self.left_margin_x or (ln.bbox.x0 <= 60.0 and t.split()[0].isdigit()):
+                                continue
+                            # Exclude examiner sidebar
+                            if ln.bbox.x0 >= self.content_max_x or "Examiner" in t:
+                                continue
+                            # Exclude mark allocations like [2], [3], [4], [Total: 10]
+                            if MARK_INLINE_PATTERN.search(t):
+                                continue
+                            # Exclude question part headers like (a), (b), (i)
+                            if _VIS_PART_RE.match(t) or PART_LABEL.match(t):
+                                continue
+                            # Exclude prose paragraph lines
+                            if ln.bbox.x0 <= self.prose_max_x0 and (ln.width >= self.prose_min_width or t.endswith((".", ":", "?"))):
+                                continue
+
                             if nearest_caption_idx(ln.bbox.x0 + ln.width / 2) == ci:
                                 claimed_boxes.append(ln.bbox)
                                 claimed_lines.add(li)
@@ -1138,7 +1163,8 @@ class CambridgeVisualExtractor:
                         v_box = v_in_cluster[0]
                         for v in v_in_cluster[1:]:
                             v_box = rect_union(v_box, v)
-                        if min(v_box.width, v_box.height) < 20.0:
+                        # Allow 2D vector layouts or multi-stroke assemblies (like circuit diagrams, terminals, apparatus)
+                        if min(v_box.width, v_box.height) < 5.0 and len(v_in_cluster) <= 2:
                             continue
 
                         # Expand to include Diagram / Figure caption directly below artwork
@@ -1173,7 +1199,7 @@ class CambridgeVisualExtractor:
                         if self._is_blank_image(pix):
                             continue
 
-                        sub_cnt = len([e for e in manifest if e.get("question") == qnum]) + 1
+                        sub_cnt = len([e for e in manifest if e.get("question") == qnum and "diagram" in e.get("filename", "")]) + 1
                         fname = f"p{pno + 1}_q{qnum}_{tag_str}_diagram_{sub_cnt}.png"
                         save_path = output_dir / fname
                         pix.save(str(save_path))

@@ -26,13 +26,16 @@ class PipelineSettings(BaseSettings):
     log_level: str = "INFO"
 
     # ── AI Agents ──
-    llm_provider: str = "google"
+    # Text Extraction: Strictly Google Gemini (100% LLM with full-PDF primary + page-by-page fallback)
     llm_model: str = "gemini-2.5-flash"
-    fallback_model: str = "qwen/qwen3-vl-8b-instruct"
-    openrouter_model: str = "qwen/qwen3-vl-8b-instruct"
-    inter_paper_delay: float = 3.0
     gemini_max_retries: int = 3
     gemini_retry_delay: float = 15.0
+    inter_paper_delay: float = 3.0
+
+    # Topic & Syllabus Classification: OpenRouter 1st choice, Gemini fallback
+    classification_provider: str = "openrouter"
+    openrouter_model: str = "google/gemini-2.5-flash"
+    gemini_classification_model: str = "gemini-2.5-flash"
 
     model_config = {
         "env_prefix": "EDGENIE_",

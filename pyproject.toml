@@ -29,6 +29,7 @@ dependencies = [
 
     # PDF & Data processing (Stage 2)
     "pymupdf>=1.24.0",
+    "pdfplumber>=0.11.0",
     "pandas>=2.0.0",
 
     # AI & Agents (Stage 2 & Orchestrator)

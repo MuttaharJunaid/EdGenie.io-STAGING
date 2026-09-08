@@ -243,18 +243,16 @@ def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> Non
                 if file_path not in flist:
                     flist.append(file_path)
 
-            _add_part_file((q_int, clean_part), rp)
-            norm_part = clean_part.strip("() ").lower()
-            if norm_part:
-                _add_part_file((q_int, norm_part), rp)
-                _add_part_file((q_int, f"({norm_part})"), rp)
             m_comp = re.match(r"^([a-z])\s*\(?([ivx\d]+)\)?$", clean_part, re.IGNORECASE)
             if m_comp:
                 p_l, sp_r = m_comp.group(1).lower(), m_comp.group(2).lower()
-                _add_part_file((q_int, f"({sp_r})"), rp)
-                _add_part_file((q_int, sp_r), rp)
                 _add_part_file((q_int, f"{p_l}({sp_r})"), rp)
                 _add_part_file((q_int, f"{p_l}{sp_r}"), rp)
+            else:
+                norm_part = clean_part.strip("() ").lower()
+                if norm_part:
+                    _add_part_file((q_int, norm_part), rp)
+                    _add_part_file((q_int, f"({norm_part})"), rp)
 
     patched = 0
     for record in records:
@@ -283,8 +281,12 @@ def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> Non
                 ]
                 if parent_lbl:
                     clean_leaf = plabel.strip("() ").lower()
-                    candidates.append(f"{parent_lbl}({clean_leaf})")
-                    candidates.append(f"{parent_lbl}{clean_leaf}")
+                    if clean_leaf.startswith(parent_lbl):
+                        clean_leaf = clean_leaf[len(parent_lbl):].strip("() ")
+                    candidates.extend([
+                        f"{parent_lbl}({clean_leaf})",
+                        f"{parent_lbl}{clean_leaf}",
+                    ])
 
                 part_files = None
                 for cand in candidates:
@@ -294,6 +296,8 @@ def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> Non
                 if part_files:
                     node["image"] = part_files if len(part_files) > 1 else part_files[0]
                     cnt += 1
+                else:
+                    node["image"] = None
             curr_lbl = plabel.strip("() ").lower() if is_top else parent_lbl
             for sp in node.get("sub_parts", []):
                 cnt += _patch_tree_images(sp, is_top=False, parent_lbl=curr_lbl)

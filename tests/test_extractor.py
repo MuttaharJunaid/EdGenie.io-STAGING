@@ -723,8 +723,8 @@ def test_agentic_extractor_mcq_stitching():
     assert stitched[1]["QuestionNumber"] == "Jun/12/2023/Q2"
 
 
-def test_agentic_extractor_qwen_fallback():
-    """Verify that when Gemini extraction fails, AgenticExtractor falls back to Qwen 2.5 VL."""
+def test_agentic_extractor_page_extraction_error_handling():
+    """Verify that when Gemini page extraction encounters an unrecoverable error, it raises."""
     import fitz
     from pipeline.extractor.agentic_extractor import AgenticExtractor
 
@@ -732,30 +732,15 @@ def test_agentic_extractor_qwen_fallback():
     mock_doc = fitz.open()
     mock_doc.new_page()
 
-    expected_qwen_result = [
-        {
-            "QuestionNumber": "Q1",
-            "Question_text": "Extracted via Qwen 2.5 VL fallback.",
-            "Marks": 2,
-            "Parts": [{"part_label": "a", "part_text": "Fallback part.", "marks": 2}],
-        }
-    ]
-
-    with patch.object(extractor, "_extract_page_with_gemini", side_effect=Exception("Gemini quota exceeded")), \
-         patch.object(extractor, "_extract_page_with_qwen", return_value=expected_qwen_result) as mock_qwen:
-
-        result = extractor._extract_page(
-            doc=mock_doc,
-            pno=0,
-            total_pages=1,
-            category=PaperCategory.ESSAY_QP,
-            meta={"session": "Jun", "variant": "11", "year": "2010"},
-        )
-
-        assert mock_qwen.called
-        assert len(result) == 1
-        assert result[0]["QuestionNumber"] == "Q1"
-        assert result[0]["Question_text"] == "Extracted via Qwen 2.5 VL fallback."
+    with patch.object(extractor, "_extract_page_with_gemini", side_effect=Exception("Gemini quota exceeded")):
+        with pytest.raises(Exception, match="Gemini quota exceeded"):
+            extractor._extract_page(
+                doc=mock_doc,
+                pno=0,
+                total_pages=1,
+                category=PaperCategory.ESSAY_QP,
+                meta={"session": "Jun", "variant": "11", "year": "2010"},
+            )
 
 
 def test_agentic_extractor_prompt_math_and_subparts():
@@ -835,8 +820,8 @@ def test_agentic_extractor_full_pdf_and_page_prompts_sanity_check():
     assert "NEVER use \"ai\", \"aii\", \"aiii\"" in page_prompt
 
 
-def test_agentic_extractor_gemini_full_pdf_primary_and_qwen_fallback(tmp_path):
-    """Verify that AgenticExtractor.extract uses Gemini full-PDF as primary and falls back to Qwen page-by-page."""
+def test_agentic_extractor_gemini_full_pdf_primary_and_page_fallback(tmp_path):
+    """Verify that AgenticExtractor.extract uses Gemini full-PDF as primary and falls back to Gemini page-by-page."""
     from pipeline.extractor.agentic_extractor import AgenticExtractor
     from pipeline.extractor.paper_type_detector import PaperCategory
 
@@ -881,11 +866,11 @@ def test_agentic_extractor_gemini_full_pdf_primary_and_qwen_fallback(tmp_path):
         assert results[0]["Parts"][0]["sub_parts"][0]["sub_part_label"] == "(i)"
         assert results[0]["Parts"][0]["sub_parts"][1]["sub_part_label"] == "(ii)"
 
-    # 2. Fallback: Gemini fails, falls back to Qwen page-by-page
-    qwen_records = [
+    # 2. Fallback: Gemini full PDF fails, falls back to Gemini page-by-page
+    page_records = [
         {
             "QuestionNumber": "Q1",
-            "Question_text": "Extracted via Qwen fallback.",
+            "Question_text": "Extracted via page-by-page fallback.",
             "Marks": 1,
             "Parts": [
                 {
@@ -901,12 +886,12 @@ def test_agentic_extractor_gemini_full_pdf_primary_and_qwen_fallback(tmp_path):
     ]
 
     with patch.object(extractor, "_extract_with_gemini_full_pdf", side_effect=Exception("Gemini quota exceeded")), \
-         patch.object(extractor, "_extract_page_with_qwen", return_value=qwen_records) as mock_qwen:
+         patch.object(extractor, "_extract_page_with_gemini", return_value=page_records) as mock_page:
 
         fallback_results = extractor.extract(pdf_file, PaperCategory.ESSAY_QP, meta)
-        assert mock_qwen.called
+        assert mock_page.called
         assert len(fallback_results) == 1
-        assert fallback_results[0]["Question_text"] == "Extracted via Qwen fallback."
+        assert fallback_results[0]["Question_text"] == "Extracted via page-by-page fallback."
         assert fallback_results[0]["Parts"][0]["sub_parts"][0]["sub_part_label"] == "(i)"
 
 

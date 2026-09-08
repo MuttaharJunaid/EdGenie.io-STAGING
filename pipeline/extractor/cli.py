@@ -18,6 +18,7 @@ from pipeline.extractor.paper_type_detector import PaperTypeDetector, PaperCateg
 from pipeline.extractor.syllabus_loader import SyllabusLoader
 from pipeline.extractor.agentic_extractor import AgenticExtractor
 from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+from pipeline.extractor.marks_validator import MarkHierarchyValidator
 from pipeline.extractor.classifier_agent import ClassifierAgent, QuotaExceededError
 from pipeline.scraper.scraper import PapaCambridgeScraper
 
@@ -153,12 +154,23 @@ def extract_single(
 
     meta_context = _get_meta_context(pdf)
 
-    # Agentic extraction (Gemini full PDF + Qwen fallback)
-    console.print(f"\n[bold green]2. Running Agentic Text Extractor (Gemini full PDF + Qwen fallback)...[/bold green]")
+    # Agentic extraction (Gemini full PDF + page fallback)
+    console.print(f"\n[bold green]2. Running Agentic Text Extractor (Gemini full PDF + page fallback)...[/bold green]")
     extractor = AgenticExtractor()
     with console.status("[bold green]Extracting text via agentic analysis..."):
         parsed_records = extractor.extract(pdf, category, meta_context)
     console.print(f"Agentic extractor produced [green]{len(parsed_records)}[/green] records.")
+
+    if parsed_records:
+        parsed_records, mark_stats = MarkHierarchyValidator.reconcile_and_validate_records(parsed_records)
+        if mark_stats.get("discrepancies_fixed", 0) > 0:
+            console.print(
+                f"  [yellow]✓ Validated & reconciled {mark_stats['discrepancies_fixed']} mark hierarchy discrepancies (Total Paper Marks: {mark_stats['total_paper_marks']}).[/yellow]"
+            )
+        else:
+            console.print(
+                f"  [green]✓ Marks hierarchy validated (Total Paper Marks: {mark_stats['total_paper_marks']}).[/green]"
+            )
 
     if not parsed_records:
         console.print(f"[bold red]Error:[/bold red] Agentic extractor returned no records.")
@@ -305,9 +317,9 @@ def classify_single(
         )
         return False
 
-    console.print(f"\n[bold green]Running Gemini Classification Pass ({json_path.name} + {resolved_syllabus.name})...[/bold green]")
+    console.print(f"\n[bold green]Running Topic Classification Pass (OpenRouter 1st choice, Gemini fallback) ({json_path.name} + {resolved_syllabus.name})...[/bold green]")
     classifier = ClassifierAgent()
-    with console.status("[bold green]Classifying questions via Gemini..."):
+    with console.status("[bold green]Classifying questions via OpenRouter/Gemini..."):
         classifications = classifier.classify(records, syllabus_text, category, meta_context)
 
     console.print(f"  [green]✓ Classified {len(classifications)} question(s).[/green]")

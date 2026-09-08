@@ -11,6 +11,7 @@ from pipeline.extractor.difficulty_analyzer import DifficultyAnalyzerAgent, Diff
 from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
 from pipeline.extractor.classifier_agent import ClassifierAgent, SingleClassification, ClassificationContainer, QuotaExceededError
 from pipeline.extractor.agentic_parser import AgenticPDFParser
+from pipeline.extractor.marks_validator import MarkHierarchyValidator
 
 __all__ = [
     "QuotaExceededError",
@@ -41,4 +42,5 @@ __all__ = [
     "SingleClassification",
     "ClassificationContainer",
     "AgenticPDFParser",
+    "MarkHierarchyValidator",
 ]

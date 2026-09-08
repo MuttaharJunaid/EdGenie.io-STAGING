@@ -1,11 +1,10 @@
 """
 pipeline/extractor/agentic_extractor.py
 
-Agentic Text Extractor — page-by-page LLM-based extraction.
+Agentic Text Extractor — 100% LLM-based extraction.
 
 Extracts question text, options, hierarchical parts, and mark schemes
-page-by-page to guarantee zero output truncation, using Google Gemini
-as primary and Qwen 2.5 VL 7B (via OpenRouter) on fallback.
+using Google Gemini (full-PDF multimodal primary + page-by-page chunked fallback).
 """
 
 import base64
@@ -20,11 +19,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import pymupdf as fitz
 from google import genai
 from google.genai import types
-from openai import OpenAI
 
 from pipeline.config import settings
 from pipeline.extractor.paper_type_detector import PaperCategory
 from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
+from pipeline.extractor.marks_validator import MarkHierarchyValidator
 from pipeline.extractor.schemas import (
     EssayAnswersContainer,
     EssayQuestionsContainer,
@@ -36,19 +35,19 @@ logger = logging.getLogger(__name__)
 
 
 class AgenticExtractor:
-    """Extracts structured questions and mark schemes using chunked page-by-page LLM calls."""
+    """
+    Extracts structured questions and mark schemes using 100% LLM analysis via Google Gemini.
+    Primary: Complete PDF extracted in a single multimodal call.
+    Fallback: Automatic chunked page-by-page extraction with Gemini and multi-page stitching
+              if full-PDF generation truncates or hits token limits.
+    """
 
     def __init__(
         self,
         model_name: Optional[str] = None,
-        fallback_model: Optional[str] = None,
     ):
         self.model_name = model_name or getattr(settings, "llm_model", "gemini-2.5-flash")
-        self.fallback_model = fallback_model or getattr(
-            settings, "fallback_model", "qwen/qwen3-vl-8b-instruct"
-        )
         self._gemini_client: Optional[genai.Client] = None
-        self._openai_client: Optional[OpenAI] = None
         self._gemini_quota_exhausted: bool = False
         self._gemini_cooldown_until: Optional[float] = None
 
@@ -71,17 +70,6 @@ class AgenticExtractor:
                 raise ValueError("GOOGLE_API_KEY environment variable not set.")
             self._gemini_client = genai.Client(api_key=api_key)
         return self._gemini_client
-
-    def _get_openai_client(self) -> OpenAI:
-        if self._openai_client is None:
-            api_key = os.getenv("OPENROUTER_API_KEY")
-            if not api_key:
-                raise ValueError("OPENROUTER_API_KEY environment variable not set.")
-            self._openai_client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=api_key,
-            )
-        return self._openai_client
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -140,7 +128,20 @@ Before outputting the final JSON response, perform a mandatory verification chec
 3. Blanks & Prompts Check: Ensure answer blanks, dotted lines, and fill-in prompts (e.g., "height = ..........", "Answer: [ ]", "...................") are completely excluded from the extracted text.
 4. Mark Scheme Answer_text Check: If solutions exist under individual parts (a, b, etc.) and there is NO overarching question text, ensure "Answer_text" is strictly "" (empty string). DO NOT output gibberish, placeholder characters (e.g. '...', '---', 'N/A', 'None'), or duplicate part text in "Answer_text".
 5. Question Paper Topic/Unit Check: In question papers, Unit, Topic, Topic_name, and Sub_topic MUST be strictly null (do NOT classify or guess topics).
-6. Marks Guarantee: Confirm that every question, part, and sub-part has marks >= 1 (never 0).
+6. Marks Guarantee & Sum Consistency: Confirm that leaf marks >= 1, sum of sub-parts equals part marks, and sum of parts equals question Marks.
+"""
+
+    MARKS_INSTRUCTIONS = """
+CRITICAL MARK ALLOCATION & HIERARCHY RULES:
+1. Bracketed Marks [N]: In Cambridge exam papers, mark allocations are explicitly printed in square brackets at the right-hand margin (e.g., [1], [2], [3], [4]). You MUST look specifically for these bracketed numbers. NEVER guess marks, and NEVER default to 1 unless the paper explicitly states [1].
+2. Strip [N] from Text: When extracting question prose, part text, or sub-part text, do NOT leave trailing mark brackets like '[1]' or '[2]' in the text field. The numeric mark goes strictly into the integer "marks" field, and the prose text must be clean.
+3. Sub-parts Mark Sum Rule: If a part (e.g., part (a)) contains nested sub-parts (e.g., (i) and (ii)), each sub-part has its own explicit mark [N]. The parent part's "marks" MUST strictly equal the SUM of all its constituent sub-parts' marks:
+   part.marks = sum(sub_part.marks)
+4. Parts Mark Sum Rule: If a question contains parts (e.g., (a), (b), (c)), the total "Marks" of the question MUST strictly equal the SUM of all its constituent parts' marks:
+   question.Marks = sum(part.marks)
+5. Single-Part Questions: If a question has NO parts or sub-parts, its total "Marks" MUST match the explicit mark [N] printed at the end of that question.
+6. Total Question Check: Many Cambridge papers print '[Total: X]' or '[Total: 10]' at the end of a question. Verify that the sum of all parts equals X. Never create an extra question or part for the '[Total: X]' label.
+7. Leaf Marks >= 1: Every leaf part, sub-part, or question must have marks >= 1 (never 0).
 """
 
     def _get_page_prompt(
@@ -215,14 +216,14 @@ STRUCTURE OF QUESTIONS, PARTS, AND SUB-PARTS:
      - Put all question text in "Question_text".
      - Set "Parts": [].
      - "Marks": integer marks for the question [N].
-  3. If the question has parts (e.g. (a), (b), (c)):
+   3. If the question has parts (e.g. (a), (b), (c)):
      - "part_label": "a", "b", etc.
      - "part_text": Introductory text or question text for that part. If part (a) immediately divides into (i) and (ii), place any introductory sentence in "part_text" (or "" if none).
-     - "marks": mark allocation integer [N] indicated in brackets (e.g. [2] -> 2). Default to 1.
+     - "marks": mark allocation integer [N] indicated in brackets (e.g. [2] -> 2). If part divides into sub-parts, part.marks MUST equal the sum of its sub-parts' marks.
      - "sub_parts": If part (a) or (b) has nested sub-parts (e.g. roman numerals (i), (ii)):
        - "sub_part_label": Strictly formatted with parentheses, e.g. "(i)", "(ii)", "(iii)", "(iv)". NEVER use "ai", "aii", "aiii", "a(i)", or "b(i)".
-       - "sub_part_text": verbatim text of the sub-part.
-       - "marks": integer marks for this sub-part (e.g. [1] -> 1, [2] -> 2). Leaf sub-parts must have marks >= 1.
+       - "sub_part_text": verbatim text of the sub-part (strip trailing [N] bracket from text).
+       - "marks": explicit integer marks indicated in brackets [N] for this sub-part (e.g. [1] -> 1, [2] -> 2). Leaf sub-parts must have marks >= 1.
        - "sub_parts": Any deeper nested sub-subparts (e.g. "(1)", "(a)"), else empty list [].
 - "Marks": Total marks allocated to the question on this page (sum of parts/subparts).
 - Leave Unit, Topic, Topic_name, and Sub_topic strictly as null (do NOT classify topics or syllabus; classification is performed in a separate stage).
@@ -234,6 +235,8 @@ CRITICAL RULES:
 4. Every leaf part, sub-part, and question must have marks >= 1 (never 0).
 
 {self.MATH_NOTATION_INSTRUCTIONS}
+
+{self.MARKS_INSTRUCTIONS}
 
 {self.SANITY_CHECK_INSTRUCTIONS}
 """
@@ -337,14 +340,14 @@ STRUCTURE OF QUESTIONS, PARTS, AND SUB-PARTS:
      - Put all question text in "Question_text".
      - Set "Parts": [].
      - "Marks": integer marks for the question indicated in brackets [N].
-  3. If the question has parts (e.g. (a), (b), (c)):
+   3. If the question has parts (e.g. (a), (b), (c)):
      - "part_label": "a", "b", "c", etc. (lowercase letter without parentheses).
      - "part_text": Text for that part. If part (a) immediately divides into (i) and (ii), place any introductory sentence in "part_text" (or "" if none).
-     - "marks": mark allocation integer [N] indicated in brackets (e.g. [2] -> 2). Default to 1.
+     - "marks": mark allocation integer [N] indicated in brackets (e.g. [2] -> 2). If part divides into sub-parts, part.marks MUST equal the sum of its sub-parts' marks.
      - "sub_parts": If part (a) or (b) has nested sub-parts (e.g. roman numerals (i), (ii)):
        - "sub_part_label": Strictly roman numerals in parentheses, e.g. "(i)", "(ii)", "(iii)", "(iv)". NEVER use "ai", "aii", "aiii", "a(i)", or "b(i)".
-       - "sub_part_text": verbatim text of the sub-part.
-       - "marks": integer marks for this sub-part (e.g. [1] -> 1, [2] -> 2). Leaf sub-parts must have marks >= 1.
+       - "sub_part_text": verbatim text of the sub-part (strip trailing [N] bracket from text).
+       - "marks": explicit integer marks indicated in brackets [N] for this sub-part (e.g. [1] -> 1, [2] -> 2). Leaf sub-parts must have marks >= 1.
        - "sub_parts": Any deeper nested sub-subparts (e.g. "(1)", "(a)"), else empty list [].
 - "Marks": Total marks allocated to the question (sum of all parts and subparts).
 - Leave Unit, Topic, Topic_name, and Sub_topic strictly as null (do NOT classify topics or syllabus; classification is performed in a separate stage).
@@ -356,6 +359,8 @@ CRITICAL RULES:
 4. Every leaf part, sub-part, and question must have marks >= 1 (never 0).
 
 {self.MATH_NOTATION_INSTRUCTIONS}
+
+{self.MARKS_INSTRUCTIONS}
 
 {self.SANITY_CHECK_INSTRUCTIONS}
 """
@@ -438,6 +443,50 @@ CRITICAL RULES:
         with open(pdf_path, "rb") as f:
             return f.read()
 
+    @staticmethod
+    def _attempt_json_repair(raw: str) -> Optional[str]:
+        """Attempts basic repair of truncated JSON responses (e.g. unclosed quotes/brackets)."""
+        if not raw:
+            return None
+        text = raw.strip()
+
+        # Count unescaped double quotes to see if string was cut off
+        in_string = False
+        escaped = False
+        for ch in text:
+            if ch == "\\" and not escaped:
+                escaped = True
+                continue
+            if ch == '"' and not escaped:
+                in_string = not in_string
+            escaped = False
+
+        if in_string:
+            text += '"'
+
+        # Close open objects/arrays
+        stack = []
+        in_string = False
+        escaped = False
+        for ch in text:
+            if ch == "\\" and not escaped:
+                escaped = True
+                continue
+            if ch == '"' and not escaped:
+                in_string = not in_string
+            elif not in_string:
+                if ch in "{[":
+                    stack.append("}" if ch == "{" else "]")
+                elif ch in "}]" and stack:
+                    if stack[-1] == ch:
+                        stack.pop()
+            escaped = False
+
+        while stack:
+            text += stack.pop()
+
+        return text
+
     def _extract_with_gemini_full_pdf(
         self,
         pdf_path: Path,
@@ -471,11 +520,34 @@ CRITICAL RULES:
                         max_output_tokens=65535,
                     ),
                 )
+                # Check for output truncation due to token limits
+                if response.candidates:
+                    cand = response.candidates[0]
+                    finish_reason = getattr(cand, "finish_reason", None)
+                    finish_str = str(finish_reason).upper()
+                    if "MAX_TOKENS" in finish_str or "LENGTH" in finish_str:
+                        logger.warning(
+                            f"Gemini generation hit MAX_TOKENS limit ({finish_str}) on {pdf_path.name}."
+                        )
+                        raise ValueError(f"Gemini output truncated due to MAX_TOKENS ceiling ({finish_str})")
+
                 raw_text = response.text
                 if not raw_text or not raw_text.strip():
                     return []
 
-                data = json.loads(raw_text)
+                try:
+                    data = json.loads(raw_text)
+                except json.JSONDecodeError as jde:
+                    repaired = self._attempt_json_repair(raw_text)
+                    if repaired:
+                        try:
+                            data = json.loads(repaired)
+                            logger.info("Successfully recovered truncated JSON via repair heuristic.")
+                        except Exception:
+                            raise jde
+                    else:
+                        raise jde
+
                 if "questions" in data:
                     return data["questions"]
                 elif "answers" in data:
@@ -640,101 +712,6 @@ CRITICAL RULES:
             raise last_err
         return []
 
-    def _extract_page_with_qwen(
-        self,
-        doc: fitz.Document,
-        pno: int,
-        schema: Any,
-        prompt: str,
-    ) -> List[Dict[str, Any]]:
-        """Fallback extraction using Qwen VL via OpenRouter with page image."""
-        # Render page as PNG image
-        page = doc[pno]
-        pix = page.get_pixmap(dpi=150)
-        png_bytes = pix.tobytes("png")
-        base64_img = base64.b64encode(png_bytes).decode("utf-8")
-
-        client = self._get_openai_client()
-
-        # Candidate models if primary fallback is unavailable
-        candidate_models = [self.fallback_model]
-        for fallback_cand in ["qwen/qwen3-vl-8b-instruct", "qwen/qwen2.5-vl-72b-instruct"]:
-            if fallback_cand not in candidate_models:
-                candidate_models.append(fallback_cand)
-
-        last_err = None
-        for model in candidate_models:
-            try:
-                # 1. Try structured parse
-                try:
-                    completion = client.beta.chat.completions.parse(
-                        model=model,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt},
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {"url": f"data:image/png;base64,{base64_img}"},
-                                    },
-                                ],
-                            }
-                        ],
-                        response_format=schema,
-                        temperature=0.1,
-                        max_tokens=8192,
-                    )
-                    parsed_obj = completion.choices[0].message.parsed
-                    if hasattr(parsed_obj, "questions"):
-                        return [q.model_dump() for q in parsed_obj.questions]
-                    elif hasattr(parsed_obj, "answers"):
-                        return [a.model_dump() for a in parsed_obj.answers]
-                    return []
-                except Exception as parse_err:
-                    if any(c in str(parse_err) for c in ["404", "No endpoints", "402"]):
-                        raise parse_err
-                    logger.warning(
-                        f"OpenRouter structured parse with {model} failed ({parse_err}). Retrying with json_object mode..."
-                    )
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt + "\nOutput strictly valid JSON."},
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {"url": f"data:image/png;base64,{base64_img}"},
-                                    },
-                                ],
-                            }
-                        ],
-                        response_format={"type": "json_object"},
-                        temperature=0.1,
-                        max_tokens=8192,
-                    )
-                    raw_text = response.choices[0].message.content
-                    if not raw_text or not raw_text.strip():
-                        return []
-                    data = json.loads(raw_text)
-                    if "questions" in data:
-                        return data["questions"]
-                    elif "answers" in data:
-                        return data["answers"]
-                    elif isinstance(data, list):
-                        return data
-                    return []
-            except Exception as cand_err:
-                last_err = cand_err
-                logger.warning(f"OpenRouter model {model} failed on page {pno + 1}: {cand_err}")
-                continue
-
-        if last_err is not None:
-            raise last_err
-        return []
-
     def _extract_page(
         self,
         doc: fitz.Document,
@@ -743,34 +720,10 @@ CRITICAL RULES:
         category: PaperCategory,
         meta: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
-        """Extract a single page with Gemini, falling back to Qwen VL on failure or quota exhaustion."""
+        """Extract a single page with Gemini."""
         schema, prompt = self._get_page_prompt(category, pno, total_pages, meta)
-
-        if not self._gemini_quota_exhausted:
-            try:
-                logger.info(f"Extracting page {pno + 1}/{total_pages} with Gemini ({self.model_name})...")
-                return self._extract_page_with_gemini(doc, pno, schema, prompt)
-            except Exception as gemini_err:
-                err_str = str(gemini_err).lower()
-                if "resource_exhausted" in err_str or "429" in err_str:
-                    logger.warning(
-                        f"Gemini quota exhausted ({gemini_err}). "
-                        f"Switching to Qwen ({self.fallback_model}) for page {pno + 1} and remaining pages..."
-                    )
-                    self._gemini_quota_exhausted = True
-                else:
-                    logger.warning(
-                        f"Gemini page {pno + 1} extraction failed: {gemini_err}. "
-                        f"Falling back to Qwen ({self.fallback_model})..."
-                    )
-
-        # Qwen VL fallback
-        try:
-            logger.info(f"Extracting page {pno + 1}/{total_pages} with Qwen ({self.fallback_model})...")
-            return self._extract_page_with_qwen(doc, pno, schema, prompt)
-        except Exception as qwen_err:
-            logger.error(f"Both Gemini and Qwen fallback failed on page {pno + 1}: {qwen_err}")
-            raise qwen_err
+        logger.info(f"Extracting page {pno + 1}/{total_pages} with Gemini ({self.model_name})...")
+        return self._extract_page_with_gemini(doc, pno, schema, prompt)
 
     # ── Post-Processors ───────────────────────────────────────────────────
 
@@ -860,7 +813,8 @@ CRITICAL RULES:
 
             results.append(q_obj)
 
-        return results
+        reconciled_results, stats = MarkHierarchyValidator.reconcile_and_validate_records(results)
+        return reconciled_results
 
     def _postprocess_mcq_qp(
         self,
@@ -967,7 +921,7 @@ CRITICAL RULES:
             })
         return results
 
-    # ── Multi-Page Stitcher (for Qwen Fallback) ───────────────────────────
+    # ── Multi-Page Stitcher (for Gemini Page Fallback) ─────────────────────
 
     def _stitch_essay_qp(
         self,
@@ -980,8 +934,9 @@ CRITICAL RULES:
 
         for page_recs in pages_records:
             for raw_q in page_recs:
-                qn_str = str(raw_q.get("QuestionNumber", ""))
-                m = re.search(r"(\d{1,2})", qn_str)
+                qn_str = str(raw_q.get("QuestionNumber", "")).strip()
+                last_seg = qn_str.split("/")[-1]
+                m = re.search(r"(?:Q|Question\s*)?(\d{1,2})\b", last_seg, re.IGNORECASE)
                 qnum = int(m.group(1)) if m else (order[-1] if order else 1)
 
                 if qnum not in questions_map:
@@ -1050,8 +1005,9 @@ CRITICAL RULES:
 
         for page_recs in pages_records:
             for raw_q in page_recs:
-                qn_str = str(raw_q.get("QuestionNumber", ""))
-                m = re.search(r"(\d{1,2})", qn_str)
+                qn_str = str(raw_q.get("QuestionNumber", "")).strip()
+                last_seg = qn_str.split("/")[-1]
+                m = re.search(r"(?:Q|Question\s*)?(\d{1,2})\b", last_seg, re.IGNORECASE)
                 qnum = int(m.group(1)) if m else (len(order) + 1)
 
                 if qnum not in questions_map:
@@ -1071,8 +1027,9 @@ CRITICAL RULES:
 
         for page_recs in pages_records:
             for raw_a in page_recs:
-                an_str = str(raw_a.get("AnswerNumber", ""))
-                m = re.search(r"(\d{1,2})", an_str)
+                an_str = str(raw_a.get("AnswerNumber", "")).strip()
+                last_seg = an_str.split("/")[-1]
+                m = re.search(r"(?:Q|Question\s*)?(\d{1,2})\b", last_seg, re.IGNORECASE)
                 if m:
                     qnum = int(m.group(1))
                     answers_map[qnum] = raw_a
@@ -1091,8 +1048,9 @@ CRITICAL RULES:
 
         for page_recs in pages_records:
             for raw_a in page_recs:
-                an_str = str(raw_a.get("AnswerNumber", ""))
-                m = re.search(r"(\d{1,2})", an_str)
+                an_str = str(raw_a.get("AnswerNumber", "")).strip()
+                last_seg = an_str.split("/")[-1]
+                m = re.search(r"(?:Q|Question\s*)?(\d{1,2})\b", last_seg, re.IGNORECASE)
                 qnum = int(m.group(1)) if m else (len(order) + 1)
 
                 if qnum not in answers_map:
@@ -1122,7 +1080,7 @@ CRITICAL RULES:
         """
         Main entry point for agentic text extraction.
         Primary: Sends the complete PDF to Gemini in a single multimodal call.
-        Fallback: Slices page-by-page and extracts with Qwen VL via OpenRouter, then stitches.
+        Fallback: Slices page-by-page and extracts with Gemini, then stitches (protects against output truncation).
         """
         pdf_path = Path(pdf_path)
 
@@ -1143,21 +1101,15 @@ CRITICAL RULES:
                         return self._postprocess_essay_ms(raw_records, meta_context)
                     return raw_records
                 else:
-                    logger.warning(f"Gemini returned 0 records for {pdf_path.name}. Falling back to Qwen...")
+                    logger.warning(f"Gemini returned 0 records for {pdf_path.name}. Falling back to page-by-page Gemini extraction...")
             except Exception as e:
-                err_str = str(e).lower()
-                if "resource_exhausted" in err_str or "429" in err_str or "quota" in err_str:
-                    logger.warning(
-                        f"Gemini quota exhausted ({e}). Cooling down for 3 minutes before retrying Gemini. "
-                        f"Falling back to Qwen ({self.fallback_model}) for current paper..."
-                    )
-                    self._gemini_quota_exhausted = True
-                    self._gemini_cooldown_until = time.time() + 180.0
-                else:
-                    logger.warning(f"Gemini extraction failed ({e}). Falling back to Qwen ({self.fallback_model})...")
+                logger.warning(
+                    f"Gemini full-PDF extraction encountered an issue ({e}). "
+                    f"Falling back to chunked page-by-page Gemini extraction to guarantee zero output truncation..."
+                )
 
-        # ── Fallback: Page-by-page extraction with Qwen VL ────────────────
-        logger.info(f"Starting Qwen page-by-page fallback extraction for {pdf_path.name} ({self.fallback_model})...")
+        # ── Fallback: Gemini Page-by-page extraction ──────────────────────
+        logger.info(f"Starting Gemini page-by-page fallback extraction for {pdf_path.name} ({self.model_name})...")
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
         pages_records: List[List[Dict[str, Any]]] = []
@@ -1178,8 +1130,8 @@ CRITICAL RULES:
                     continue
 
             schema, prompt = self._get_page_prompt(category, pno, total_pages, meta_context)
-            logger.info(f"Extracting page {pno + 1}/{total_pages} with Qwen ({self.fallback_model})...")
-            page_recs = self._extract_page_with_qwen(doc, pno, schema, prompt)
+            logger.info(f"Extracting page {pno + 1}/{total_pages} with Gemini ({self.model_name})...")
+            page_recs = self._extract_page_with_gemini(doc, pno, schema, prompt)
             if page_recs:
                 pages_records.append(page_recs)
 
