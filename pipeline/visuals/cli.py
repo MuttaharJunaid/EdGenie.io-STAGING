@@ -94,6 +94,16 @@ def extract_visuals_for_pdf(
         console.print("[yellow]No visual figures detected in this paper.[/yellow]")
         return []
 
+    # If --force was specified, prune any stale .png files not in the active manifest
+    if force:
+        active_filenames = {e["filename"] for e in manifest}
+        for stale_png in visuals_dir.glob("*.png"):
+            if stale_png.name not in active_filenames:
+                try:
+                    stale_png.unlink()
+                except Exception:
+                    pass
+
     console.print(f"  Extracted [green]{len(manifest)}[/green] figures into [cyan]{visuals_dir.name}/[/cyan]")
 
     # Patch sibling Stage 2 JSON if it exists
@@ -254,6 +264,19 @@ def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> Non
                     _add_part_file((q_int, norm_part), rp)
                     _add_part_file((q_int, f"({norm_part})"), rp)
 
+    def _is_image_compatible_with_question(img_path: str, q_target: int) -> bool:
+        """Sanity guard: ensure image file does not belong to a different question."""
+        m_q = re.search(r"_q(\d+)_", img_path)
+        if m_q and int(m_q.group(1)) != q_target:
+            return False
+        m_fig = re.search(r"Fig_(\d+)_", img_path)
+        if m_fig and int(m_fig.group(1)) != q_target:
+            return False
+        m_tab = re.search(r"Table_(\d+)_", img_path)
+        if m_tab and int(m_tab.group(1)) != q_target:
+            return False
+        return True
+
     patched = 0
     for record in records:
         q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
@@ -263,9 +286,12 @@ def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> Non
         q_num = int(m.group(1))
 
         # Patch question-level image (stem figures)
-        stem_files = q_to_stem_files.get(q_num)
-        if stem_files:
-            record["image"] = stem_files if len(stem_files) > 1 else stem_files[0]
+        stem_candidates = [
+            f for f in q_to_stem_files.get(q_num, [])
+            if _is_image_compatible_with_question(f, q_num)
+        ]
+        if stem_candidates:
+            record["image"] = stem_candidates if len(stem_candidates) > 1 else stem_candidates[0]
             patched += 1
 
         # Patch part-level and nested sub-part images recursively
@@ -291,8 +317,13 @@ def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> Non
                 part_files = None
                 for cand in candidates:
                     if cand and (q_num, cand) in q_part_to_files:
-                        part_files = q_part_to_files[(q_num, cand)]
-                        break
+                        matching_files = [
+                            f for f in q_part_to_files[(q_num, cand)]
+                            if _is_image_compatible_with_question(f, q_num)
+                        ]
+                        if matching_files:
+                            part_files = matching_files
+                            break
                 if part_files:
                     node["image"] = part_files if len(part_files) > 1 else part_files[0]
                     cnt += 1

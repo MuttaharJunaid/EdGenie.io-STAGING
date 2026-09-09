@@ -437,6 +437,113 @@ class TestTableVisualExtraction:
         assert "fig" not in entry["filename"].lower(), f"Uncaptioned visual filename shouldn't contain fig: {entry['filename']}"
         assert "_sub_part_c(iii)_" in entry["filename"]
 
+    def test_get_question_anchors_rejects_units_and_enforces_monotonicity(self):
+        """Verify get_question_anchors rejects units like '1 cm' and non-monotonic numbers."""
+        extractor = CambridgeVisualExtractor()
+        lines = [
+            Line(text="1 cm", bbox=fitz.Rect(30, 368, 52, 379), bold=False, width=22),          # Diagram scale (axis)
+            Line(text="2 mm", bbox=fitz.Rect(45, 200, 70, 215), bold=False, width=25),          # Measurement
+            Line(text="10 kg", bbox=fitz.Rect(45, 250, 70, 265), bold=False, width=25),         # Measurement
+            Line(text="1", bbox=fitz.Rect(45, 100, 55, 115), bold=True, width=10),              # Valid Q1
+            Line(text="9 (a)", bbox=fitz.Rect(45, 300, 80, 315), bold=True, width=35),          # Valid Q9(a)
+            Line(text="10 An atom of phosphorus...", bbox=fitz.Rect(45, 400, 300, 415), bold=True, width=255), # Valid Q10
+        ]
+        # Without min_question constraint:
+        anchors = extractor.get_question_anchors(lines, min_question=1)
+        assert (1, 100) in anchors
+        assert (9, 300) in anchors
+        assert (10, 400) in anchors
+        assert not any(a[0] == 1 and a[1] == 368 for a in anchors), "'1 cm' at y0=368 must NOT be an anchor!"
+
+        # With min_question constraint (e.g. at Question 9):
+        anchors_q9 = extractor.get_question_anchors(lines, min_question=9)
+        assert (9, 300) in anchors_q9
+        assert (10, 400) in anchors_q9
+        assert not any(a[0] < 9 for a in anchors_q9), "Anchors < 9 must be excluded when min_question=9"
+
+    def test_validate_and_sanitize_manifest_reconciles_caption_mismatch(self, tmp_path):
+        """Verify _validate_and_sanitize_manifest corrects question number and renames file when caption conflicts."""
+        extractor = CambridgeVisualExtractor()
+        dummy_file = tmp_path / "p13_q1_part_b_Fig_9_2.png"
+        dummy_file.write_bytes(b"dummy image data")
+
+        manifest = [
+            {
+                "page": 13,
+                "question": 1,
+                "target_type": "part",
+                "target_label": "b",
+                "part": "b",
+                "caption": "Fig. 9.2",
+                "bbox": [43.6, 160.5, 529.6, 449.7],
+                "filename": "p13_q1_part_b_Fig_9_2.png",
+                "file": "p13_q1_part_b_Fig_9_2.png",
+                "relative_path": f"{tmp_path.name}/p13_q1_part_b_Fig_9_2.png",
+            }
+        ]
+
+        sanitized = extractor._validate_and_sanitize_manifest(manifest, tmp_path)
+        assert len(sanitized) == 1
+        entry = sanitized[0]
+        assert entry["question"] == 9, "Caption Fig. 9.2 must force question == 9"
+        assert entry["filename"] == "p13_q9_part_b_Fig_9_2.png"
+        assert (tmp_path / "p13_q9_part_b_Fig_9_2.png").exists(), "On-disk file must be renamed"
+        assert not dummy_file.exists(), "Old file with wrong question must no longer exist"
+
+    def test_5054_w10_qp_21_fig_9_2_naming_and_patching(self, tmp_path):
+        """End-to-end regression: 5054_w10_qp_21 Fig 9.2 must be named for Q9 part b and patched to Q9 in JSON."""
+        pdf_path = Path("pipeline/storage/5054/2010/nov/5054_w10_qp_21.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5054_w10_qp_21.pdf not found in storage.")
+
+        output_dir = tmp_path / "w10_21_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # 1. Fig 9.2 check
+        fig9_2 = [m for m in manifest if m.get("caption") == "Fig. 9.2"]
+        assert len(fig9_2) == 1
+        entry = fig9_2[0]
+        assert entry["question"] == 9, f"Fig. 9.2 must be question 9, got {entry['question']}"
+        assert entry["target_label"] == "b"
+        assert entry["filename"] == "p13_q9_part_b_Fig_9_2.png"
+        assert (output_dir / "p13_q9_part_b_Fig_9_2.png").exists()
+
+    def test_5054_w10_qp_31_p6_circuit_and_p11_graph_grid(self, tmp_path):
+        """Regression test: 5054_w10_qp_31 Page 6 circuit must be Q3 part a, and Page 11 full-page graph grid must be Q4 part e."""
+        pdf_path = Path("pipeline/storage/5054/2010/nov/5054_w10_qp_31.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5054_w10_qp_31.pdf not found in storage.")
+
+        output_dir = tmp_path / "w10_31_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # 1. Page 6 circuit diagram check: must be Q3 part a, NOT Q20
+        p6_entries = [m for m in manifest if m.get("page") == 6]
+        assert len(p6_entries) == 1, f"Expected 1 visual on page 6, found: {p6_entries}"
+        p6 = p6_entries[0]
+        assert p6["question"] == 3, f"Page 6 visual must belong to Q3, got Q{p6['question']}"
+        assert p6["target_type"] == "part"
+        assert p6["target_label"] == "a"
+        assert p6["filename"] == "p6_q3_part_a_diagram_1.png"
+        assert (output_dir / "p6_q3_part_a_diagram_1.png").exists()
+
+        # Verify no visual in entire paper is associated with non-existent Question 20
+        q20_entries = [m for m in manifest if m.get("question") == 20]
+        assert len(q20_entries) == 0, f"No visuals should be mapped to Q20: {q20_entries}"
+
+        # 2. Page 11 millimeter graph grid check: must be extracted and associated with Q4 part e
+        p11_entries = [m for m in manifest if m.get("page") == 11]
+        assert len(p11_entries) == 1, f"Expected 1 visual on page 11 (graph grid), found: {p11_entries}"
+        p11 = p11_entries[0]
+        assert p11["question"] == 4, f"Page 11 grid must belong to Q4, got Q{p11['question']}"
+        assert p11["target_type"] == "part"
+        assert p11["target_label"] == "e"
+        assert p11["filename"] == "p11_q4_part_e_diagram_1.png"
+        assert (output_dir / "p11_q4_part_e_diagram_1.png").exists()
+
+
 
 
 

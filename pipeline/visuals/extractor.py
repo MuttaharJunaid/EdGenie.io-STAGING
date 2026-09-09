@@ -73,6 +73,10 @@ _VIS_PART_RE = re.compile(
     re.IGNORECASE,
 )
 _VIS_SUB_NUM_RE = re.compile(r"^\s*(?:([1-9])\.|\(([1-9])\))\s+([a-zA-Z].*)$", re.IGNORECASE)
+GRID_PROMPT_PATTERN = re.compile(
+    r"\b(?:grid\s+opposite|grid\s+below|on\s+the\s+grid|plot\s+a\s+graph|draw\s+a\s+graph|graph\s+opposite|grid\s+on\s+page)\b",
+    re.IGNORECASE,
+)
 
 
 # MCQ paper detection & extraction constants
@@ -85,6 +89,28 @@ MCQ_MIN_CLUSTER_DIM = 30.0     # Min longest dimension to count as a real diagra
 MCQ_MAX_TEXT_DENSITY = 0.35    # Diagram clusters must have text coverage < 35% (tables have >= 45%)
 FALLBACK_MIN_CLUSTER_AREA = 3000.0  # Min cluster area for uncaptioned fallback diagrams (e.g. Maths)
 FALLBACK_MIN_CLUSTER_DIM = 20.0     # Min dimension for uncaptioned fallback diagrams
+
+# Units of measurement and graph scale abbreviations that should never be parsed as question numbers
+UNIT_TOKENS: Set[str] = {
+    "cm", "mm", "m", "km", "nm", "μm",
+    "metre", "metres", "meter", "meters",
+    "g", "kg", "mg",
+    "s", "ms", "μs", "sec", "secs", "second", "seconds",
+    "min", "mins", "minute", "minutes",
+    "h", "hr", "hrs", "hour", "hours",
+    "n", "kn", "mn",
+    "j", "kj", "mj",
+    "w", "kw", "mw",
+    "v", "kv", "mv",
+    "a", "ma", "ka",
+    "pa", "kpa", "mpa",
+    "hz", "khz", "mhz",
+    "c", "°c", "k",
+    "rad", "deg",
+    "mol", "db",
+    "ohm", "ω", "kω", "mω",
+    "%", "per",
+}
 
 # Mathematical font symbol mapping and superscript tables
 SUPERSCRIPT_MAP = {
@@ -355,19 +381,41 @@ class CambridgeVisualExtractor:
             clustered_lines.extend(r)
         return clustered_lines
 
-    def get_question_anchors(self, lines: List[Line]) -> List[Tuple[int, float]]:
+    def get_question_anchors(self, lines: List[Line], min_question: int = 1) -> List[Tuple[int, float]]:
         """[(question_number, y0), ...] using left-margin layout geometry."""
         anchors: List[Tuple[int, float]] = []
         for ln in lines:
-            if ln.bbox.x0 >= self.left_margin_x or ln.bbox.y0 <= self.header_y or ln.bbox.y0 >= 780:
+            # Cambridge question numbers sit in the margin gutter (~38 to 60 pt)
+            if ln.bbox.x0 < 38.0 or ln.bbox.x0 >= self.left_margin_x or ln.bbox.y0 <= self.header_y or ln.bbox.y0 >= 780:
                 continue
             stripped = ln.text.strip()
-            if stripped.isdigit() and len(stripped) <= 2 and int(stripped) >= 1:
-                anchors.append((int(stripped), ln.bbox.y0))
+            if stripped.isdigit() and len(stripped) <= 2:
+                val = int(stripped)
+                if val >= min_question:
+                    anchors.append((val, ln.bbox.y0))
             else:
-                m = re.match(r"^(\d{1,2})\s+\S", stripped)
-                if m and int(m.group(1)) >= 1:
-                    anchors.append((int(m.group(1)), ln.bbox.y0))
+                m = re.match(r"^(\d{1,2})\s+(\S.*)$", stripped)
+                if m:
+                    q_val = int(m.group(1))
+                    if q_val < min_question:
+                        continue
+                    rest = m.group(2).strip()
+                    # Question parts like "9 (a)", "10 (b)" or "11 (i)" are valid question anchors, not units
+                    if rest.startswith("(") or re.match(r"^[a-z]\)", rest, re.IGNORECASE):
+                        anchors.append((q_val, ln.bbox.y0))
+                        continue
+
+                    # Filter out units / axis ticks (e.g. "1 cm", "2 mm", "10 kg", "20 minutes.")
+                    tokens = re.split(r"[\s/]+", rest)
+                    first_tok = tokens[0].rstrip(".,;:!?")
+                    # If first token is 'a' or 'A', distinguish English article ("A student", "A car") from unit Amperes
+                    if first_tok.lower() == "a" and len(tokens) > 1 and tokens[1][0].isalpha():
+                        anchors.append((q_val, ln.bbox.y0))
+                        continue
+
+                    if first_tok.lower() in UNIT_TOKENS:
+                        continue
+                    anchors.append((q_val, ln.bbox.y0))
         anchors.sort(key=lambda a: a[1])
         return anchors
 
@@ -788,6 +836,7 @@ class CambridgeVisualExtractor:
         doc = fitz.open(str(pdf_path))
         manifest: List[Dict[str, Any]] = []
         last_seen_question: Optional[int] = None
+        last_seen_grid_part: Optional[Tuple[str, str, Optional[int], int]] = None
 
         logger.info(f"CambridgeVisualExtractor: extracting visuals from {pdf_path.name} (pages: {len(doc)})")
 
@@ -811,20 +860,32 @@ class CambridgeVisualExtractor:
                 continue
 
             lines = self.get_lines(page)
-            anchors = self.get_question_anchors(lines)
-            if anchors:
-                last_seen_question = anchors[-1][0]
             captions = self.get_captions(lines)
+            first_cap_q = captions[0].get("q_from_caption") if captions else None
+            # Skip question anchors on cover page (pno == 0) — Cambridge questions never start on the cover page
+            if pno == 0:
+                anchors = []
+                first_cap_q = None
+            else:
+                anchors = self.get_question_anchors(lines, min_question=last_seen_question or 1)
+                if anchors:
+                    if last_seen_grid_part and anchors[0][0] > (last_seen_grid_part[2] or 0):
+                        last_seen_grid_part = None
+                    last_seen_question = anchors[-1][0]
+                elif first_cap_q:
+                    if last_seen_grid_part and first_cap_q > (last_seen_grid_part[2] or 0):
+                        last_seen_grid_part = None
+                    last_seen_question = max(last_seen_question or 0, first_cap_q)
 
             # Build question-scoped part anchors: [(q_num, part_label_str, target_type, y0), ...]
             # Scoped strictly by question boundary so parts from question N never bleed into question N+1.
             part_anchors: List[Tuple[Optional[int], str, str, float]] = []
-            _curr_q: Optional[int] = anchors[0][0] if anchors else last_seen_question
+            _curr_q: Optional[int] = anchors[0][0] if anchors else (first_cap_q or last_seen_question)
             _current_letter: Optional[str] = None
             _current_subpart: Optional[str] = None
 
             def _get_active_q_for_y(y: float) -> Optional[int]:
-                active_q = anchors[0][0] if anchors else last_seen_question
+                active_q = anchors[0][0] if anchors else (first_cap_q or last_seen_question)
                 for qn, qy in anchors:
                     if qy <= y:
                         active_q = qn
@@ -861,6 +922,11 @@ class CambridgeVisualExtractor:
                     _ssp_str = f"{_current_subpart}({num})"
                     part_anchors.append((_curr_q, _ssp_str, "sub_part", ln.bbox.y0))
 
+                if GRID_PROMPT_PATTERN.search(ln.text):
+                    tgt_t = "sub_part" if _current_subpart else ("part" if _current_letter else "question")
+                    tgt_lbl = _current_subpart or _current_letter or f"Q{_curr_q}"
+                    last_seen_grid_part = (tgt_t, tgt_lbl, _curr_q, pno)
+
             def _resolve_part_target(q_target: Optional[int], target_y: float) -> Tuple[str, str]:
                 """Resolve (target_type, target_label) scoped strictly to q_target's own parts."""
                 best_label = f"Q{q_target}"
@@ -877,6 +943,81 @@ class CambridgeVisualExtractor:
             PRINT_X0, PRINT_X1 = 35.0, 540.0
             PRINT_Y0, PRINT_Y1 = 45.0, 785.0
 
+            # 0. Pre-scan for graph grid meshes (e.g. millimeter or coordinate grids).
+            # Individual grid lines can be 300-700pt long and <1pt thin, which would otherwise
+            # be dropped by page-spanning line or margin filters.
+            grid_boxes: List[fitz.Rect] = []
+            grid_line_indices: Set[int] = set()
+
+            raw_drawings_list = page.get_drawings(extended=True)
+            h_cands: List[Tuple[int, fitz.Rect]] = []
+            v_cands: List[Tuple[int, fitz.Rect]] = []
+            for d_idx, d in enumerate(raw_drawings_list):
+                if d.get("type") in ("clip", "group"):
+                    continue
+                raw_r = d.get("rect")
+                if not raw_r:
+                    continue
+                r_c = fitz.Rect(raw_r)
+                if r_c.height == 0:
+                    r_c = fitz.Rect(r_c.x0, r_c.y0 - 0.25, r_c.x1, r_c.y1 + 0.25)
+                if r_c.width == 0:
+                    r_c = fitz.Rect(r_c.x0 - 0.25, r_c.y0, r_c.x1 + 0.25, r_c.y1)
+                r_c = r_c & page.rect
+                if r_c.is_empty:
+                    continue
+                if r_c.height <= 2.0 and r_c.width >= 40.0 and r_c.y0 >= 55.0 and r_c.y1 <= PRINT_Y1 and r_c.x0 >= PRINT_X0 and r_c.x1 <= PRINT_X1:
+                    h_cands.append((d_idx, r_c))
+                elif r_c.width <= 2.0 and r_c.height >= 40.0 and r_c.x0 >= PRINT_X0 and r_c.x1 <= 520.0 and r_c.y0 >= 55.0 and r_c.y1 <= PRINT_Y1:
+                    v_cands.append((d_idx, r_c))
+
+            if len(h_cands) >= 6 and len(v_cands) >= 6:
+                adj_h: Dict[int, List[int]] = {i: [] for i, _ in h_cands}
+                adj_v: Dict[int, List[int]] = {j: [] for j, _ in v_cands}
+                for i, hr in h_cands:
+                    for j, vr in v_cands:
+                        if hr.x0 - 2.0 <= vr.x0 <= hr.x1 + 2.0 and vr.y0 - 2.0 <= hr.y0 <= vr.y1 + 2.0:
+                            adj_h[i].append(j)
+                            adj_v[j].append(i)
+
+                visited_h: Set[int] = set()
+                visited_v: Set[int] = set()
+                for i, _ in h_cands:
+                    if i in visited_h:
+                        continue
+                    q_h = [i]
+                    q_v: List[int] = []
+                    comp_h = {i}
+                    comp_v: Set[int] = set()
+                    visited_h.add(i)
+                    while q_h or q_v:
+                        while q_h:
+                            curr_h = q_h.pop()
+                            for n_v in adj_h[curr_h]:
+                                if n_v not in comp_v:
+                                    comp_v.add(n_v)
+                                    visited_v.add(n_v)
+                                    q_v.append(n_v)
+                        while q_v:
+                            curr_v = q_v.pop()
+                            for n_h in adj_v[curr_v]:
+                                if n_h not in comp_h:
+                                    comp_h.add(n_h)
+                                    visited_h.add(n_h)
+                                    q_h.append(n_h)
+
+                    if len(comp_h) >= 6 and len(comp_v) >= 6:
+                        comp_rects = [r for idx, r in h_cands if idx in comp_h] + [r for idx, r in v_cands if idx in comp_v]
+                        grid_bbox = fitz.Rect(
+                            min(r.x0 for r in comp_rects),
+                            min(r.y0 for r in comp_rects),
+                            max(r.x1 for r in comp_rects),
+                            max(r.y1 for r in comp_rects),
+                        )
+                        grid_boxes.append(grid_bbox)
+                        grid_line_indices.update(comp_h)
+                        grid_line_indices.update(comp_v)
+
             # 1. Filter printable drawings (drop margin text, vertical stripes, crop marks).
             #    Use extended=True so PyMuPDF interleaves {"type": "clip"} entries that carry
             #    the active scissor rect. We intersect every path's raw rect with the scissor
@@ -885,7 +1026,9 @@ class CambridgeVisualExtractor:
             #    with the margin strip and get silently dropped (root cause of Fig 3.1 bug).
             filtered_drawings = []
             current_scissor: Optional[fitz.Rect] = None
-            for d in page.get_drawings(extended=True):
+            for d_idx, d in enumerate(raw_drawings_list):
+                if d_idx in grid_line_indices:
+                    continue
                 d_type = d.get("type")
                 if d_type in ("clip", "group"):
                     if d_type == "clip":
@@ -934,6 +1077,9 @@ class CambridgeVisualExtractor:
                 if r.width > 350.0 and r.height < 3.0:
                     continue
                 filtered_drawings.append(r)
+
+            # Include aggregated grid bounding boxes directly
+            filtered_drawings.extend(grid_boxes)
 
             # 2. Filter embedded images
             raster_xref_map = self._build_raster_xref_map(page)
@@ -1037,8 +1183,21 @@ class CambridgeVisualExtractor:
                     for qn, y in anchors:
                         if y <= cap["bbox"].y0:
                             qnum = qn
-                    if qnum is None:
-                        qnum = last_seen_question if last_seen_question is not None else cap["q_from_caption"]
+
+                    # Authoritative caption priority: Fig. X.Y or Table X.Y ground truth
+                    cap_q = cap.get("q_from_caption")
+                    if cap_q is not None:
+                        if qnum is not None and qnum != cap_q:
+                            logger.warning(
+                                f"  [Sanity Override] Caption '{cap['label']}' specifies Q{cap_q}, "
+                                f"overriding conflicting layout anchor Q{qnum}."
+                            )
+                        qnum = cap_q
+                    elif qnum is None:
+                        qnum = last_seen_question
+
+                    if qnum is not None:
+                        last_seen_question = max(last_seen_question or 0, qnum)
 
                     # ── Part association ──────────────────────────────────────────────
                     # Strategy 1: check if any part line on this page explicitly names
@@ -1187,6 +1346,17 @@ class CambridgeVisualExtractor:
                         # Part association: vertical containment against question's own part anchors
                         target_type, target_label = _resolve_part_target(qnum, r.y0)
 
+                        is_grid = any(rects_touch(r, gbox, pad=5.0) for gbox in grid_boxes)
+                        if (
+                            is_grid
+                            and target_type == "question"
+                            and last_seen_grid_part is not None
+                            and last_seen_grid_part[2] == qnum
+                            and (pno - last_seen_grid_part[3] <= 2)
+                        ):
+                            target_type, target_label = last_seen_grid_part[0], last_seen_grid_part[1]
+                            last_seen_grid_part = None
+
                         if target_type == "question":
                             tag_str = "question"
                         elif target_type == "part":
@@ -1287,6 +1457,9 @@ class CambridgeVisualExtractor:
 
         doc.close()
 
+        # Post-extraction sanity validation: enforce caption ground truth and schema filenames
+        manifest = self._validate_and_sanitize_manifest(manifest, output_dir)
+
         # Write manifest.json
         manifest_path = output_dir / "manifest.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
@@ -1296,4 +1469,77 @@ class CambridgeVisualExtractor:
             f"CambridgeVisualExtractor: successfully extracted {len(manifest)} visuals "
             f"into {output_dir.name}/ (manifest: {manifest_path.name})"
         )
+        return manifest
+
+    def _validate_and_sanitize_manifest(
+        self, manifest: List[Dict[str, Any]], output_dir: Path
+    ) -> List[Dict[str, Any]]:
+        """
+        Post-extraction sanity validator and reconciler:
+        1. Enforces that any captioned visual (Fig. X.Y or Table X.Y) has question == X.
+        2. Ensures filename strictly adheres to canonical schema:
+           p{page}_q{question}_{discriminator}_{label}.png
+        3. Reconciles on-disk files if any rename is required.
+        """
+        modified = False
+        for entry in manifest:
+            cap = entry.get("caption") or ""
+            current_q = entry.get("question")
+            m_fig = re.search(r"Fig(?:ure)?\.?\s*(\d+)\.(\d+)", cap, re.I)
+            m_tab = re.search(r"Table\s*(\d+)\.(\d+)", cap, re.I)
+            cap_q = int(m_fig.group(1)) if m_fig else (int(m_tab.group(1)) if m_tab else None)
+
+            # Ground-truth override: caption question number defines question
+            if cap_q is not None and current_q != cap_q:
+                logger.warning(
+                    f"  [Manifest Sanity] Fixing question mismatch in {entry.get('filename')}: "
+                    f"question was {current_q}, but caption '{cap}' specifies Q{cap_q}."
+                )
+                entry["question"] = cap_q
+                modified = True
+
+            # Reconcile discriminator tag: "question", "part_{label}", or "sub_part_{label}"
+            target_type = entry.get("target_type")
+            target_label = entry.get("target_label")
+            part = entry.get("part")
+
+            if target_type == "question":
+                tag_str = "question"
+            elif target_type == "part":
+                tag_str = f"part_{target_label}"
+            elif target_type == "sub_part":
+                tag_str = f"sub_part_{target_label}"
+            elif part and part not in ("question", "stem", ""):
+                clean_p = re.sub(r"^(?:sub_)?part_", "", str(part))
+                tag_str = f"part_{clean_p}"
+            else:
+                tag_str = "question"
+
+            # Reconcile label tag: "Fig_X_Y", "Table_X_Y", or "diagram_{N}"
+            if m_fig:
+                clean_label = f"Fig_{m_fig.group(1)}_{m_fig.group(2)}"
+            elif m_tab:
+                clean_label = f"Table_{m_tab.group(1)}_{m_tab.group(2)}"
+            else:
+                old_fn = entry.get("filename", "")
+                m_end = re.search(r"(diagram_\d+|table_\d+|Fig_[^.]+|Table_[^.]+)", old_fn, re.I)
+                clean_label = m_end.group(1) if m_end else "diagram_1"
+
+            expected_fname = f"p{entry['page']}_q{entry['question']}_{tag_str}_{clean_label}.png"
+            old_fname = entry.get("filename")
+
+            if old_fname != expected_fname:
+                logger.info(f"  [Manifest Sanity] Renaming {old_fname} -> {expected_fname}")
+                old_path = output_dir / old_fname if old_fname else None
+                new_path = output_dir / expected_fname
+                if old_path and old_path.exists() and old_path != new_path:
+                    try:
+                        old_path.rename(new_path)
+                    except Exception as e:
+                        logger.warning(f"  Failed to rename {old_path} to {new_path}: {e}")
+                entry["filename"] = expected_fname
+                entry["file"] = expected_fname
+                entry["relative_path"] = f"{output_dir.name}/{expected_fname}"
+                modified = True
+
         return manifest
