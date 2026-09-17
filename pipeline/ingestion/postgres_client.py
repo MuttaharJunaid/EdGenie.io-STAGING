@@ -1,11 +1,13 @@
 import json
 import logging
 import os
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+import re
+from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+
+from pipeline.scraper.subject_registry import SubjectRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +190,13 @@ class PostgresClient:
 
     def ensure_subject_exists(self, subject_code: str) -> None:
         """Ensures the subject exists in the subjects table to satisfy foreign keys."""
-        name, level = SUBJECT_NAME_MAP.get(subject_code, (f"Subject {subject_code}", "O-Level"))
+        entry = SubjectRegistry.lookup_by_code(subject_code)
+        if entry:
+            raw_title = entry.get("title") or entry.get("subject_slug") or f"Subject {subject_code}"
+            name = re.sub(r"\s*[-–(]?\s*\d{4}\s*\)?\s*$", "", raw_title).strip()
+            level = "A-Level" if "a-level" in entry.get("level", "").lower() else "O-Level"
+        else:
+            name, level = SUBJECT_NAME_MAP.get(subject_code, (f"Subject {subject_code}", "O-Level"))
         sql = """
         INSERT INTO subjects (subject_code, subject_name, level, updated_at)
         VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
@@ -198,7 +206,7 @@ class PostgresClient:
             with conn.cursor() as cur:
                 cur.execute(sql, (subject_code, name, level))
 
-    def upsert_paper(self, paper: Dict[str, Any]) -> None:
+    def upsert_paper(self, paper: dict[str, Any]) -> None:
         """Upserts a paper record into the papers table."""
         self.ensure_subject_exists(paper["subject_code"])
         sql = """
@@ -244,7 +252,7 @@ class PostgresClient:
                     },
                 )
 
-    def upsert_questions(self, questions: List[Dict[str, Any]]) -> int:
+    def upsert_questions(self, questions: list[dict[str, Any]]) -> int:
         """Batch upserts question records (MCQ & Essay) into the questions table."""
         if not questions:
             return 0
@@ -321,7 +329,7 @@ class PostgresClient:
 
         return len(questions)
 
-    def upsert_answers(self, answers: List[Dict[str, Any]]) -> int:
+    def upsert_answers(self, answers: list[dict[str, Any]]) -> int:
         """Batch upserts answer records into the answers table."""
         if not answers:
             return 0
@@ -376,7 +384,7 @@ class PostgresClient:
 
         return len(answers)
 
-    def upsert_visuals(self, visuals: List[Dict[str, Any]]) -> int:
+    def upsert_visuals(self, visuals: list[dict[str, Any]]) -> int:
         """Batch upserts visual figure metadata records into the visuals table."""
         if not visuals:
             return 0
@@ -428,7 +436,7 @@ class PostgresClient:
 
         return len(visuals)
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Returns row counts for all tables."""
         tables = ["subjects", "papers", "questions", "answers", "visuals", "pipeline_runs"]
         stats = {}

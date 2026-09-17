@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +15,10 @@ class SubjectRegistry:
     PapaCambridge URL slugs and syllabus codes.
     """
 
-    _data: Optional[Dict[str, Dict[str, Any]]] = None
+    _data: dict[str, dict[str, Any]] | None = None
 
     @classmethod
-    def _load_data(cls) -> Dict[str, Dict[str, Any]]:
+    def _load_data(cls) -> dict[str, dict[str, Any]]:
         if cls._data is not None:
             return cls._data
 
@@ -28,7 +28,7 @@ class SubjectRegistry:
             return cls._data
 
         try:
-            with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
+            with open(REGISTRY_FILE, encoding="utf-8") as f:
                 cls._data = json.load(f)
         except Exception as e:
             logger.error(f"Error reading subject registry: {e}")
@@ -44,12 +44,23 @@ class SubjectRegistry:
         return "o-level"
 
     @classmethod
+    def lookup_by_code(cls, code: str) -> dict[str, Any] | None:
+        """Lookup subject entry across all levels (o-level, as-and-a-level) by syllabus code."""
+        data = cls._load_data()
+        clean_code = str(code).strip()
+        for lvl in ("o-level", "as-and-a-level"):
+            level_dict = data.get(lvl, {})
+            if clean_code in level_dict:
+                return level_dict[clean_code]
+        return None
+
+    @classmethod
     def get_entry(
         cls,
         level: str,
-        code: Optional[str] = None,
-        subject_name: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        code: str | None = None,
+        subject_name: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Lookup a subject entry by syllabus code or subject name/keyword.
         """
@@ -102,8 +113,8 @@ class SubjectRegistry:
     def resolve_subject_slug(
         cls,
         level: str,
-        subject_name: Optional[str] = None,
-        code: Optional[str] = None,
+        subject_name: str | None = None,
+        code: str | None = None,
     ) -> str:
         """
         Returns the exact subject_slug for PapaCambridge URL building.

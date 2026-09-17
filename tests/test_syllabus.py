@@ -4,12 +4,10 @@ tests/test_syllabus.py
 Unit tests for Stage 0 syllabus crawler and builder.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-import pytest
 
+from pipeline.syllabus.builder import SyllabusBuilder, SyllabusRow
 from pipeline.syllabus.crawler import CambridgeSyllabusCrawler
-from pipeline.syllabus.builder import SyllabusBuilder, SyllabusRow, SyllabusContainer
 
 
 def test_crawler_level_urls():

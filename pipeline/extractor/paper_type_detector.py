@@ -1,7 +1,8 @@
-import re
-import fitz  # PyMuPDF
-from enum import Enum
 import logging
+import re
+from enum import Enum
+
+import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class PaperTypeDetector:
     def detect_by_filename(filename: str) -> PaperCategory:
         """Heuristic check based on standard CAIE paper numbers (e.g. Paper 1 is MCQ)."""
         lower_name = filename.lower()
-        
+
         # Check if it's a mark scheme
         is_ms = "_ms_" in lower_name or "ms" in lower_name
         is_qp = "_qp_" in lower_name or "qp" in lower_name
@@ -42,12 +43,12 @@ class PaperTypeDetector:
             if "mcq" in lower_name or "paper_1" in lower_name or "p1" in lower_name:
                 return PaperCategory.MCQ_MS
             return PaperCategory.ESSAY_MS
-        
+
         if is_qp:
             if "mcq" in lower_name or "paper_1" in lower_name or "p1" in lower_name:
                 return PaperCategory.MCQ_QP
             return PaperCategory.ESSAY_QP
-            
+
         return PaperCategory.OTHER
 
     @staticmethod
@@ -60,7 +61,7 @@ class PaperTypeDetector:
             text_sample = ""
             for i in range(num_pages_to_check):
                 text_sample += doc[i].get_text()
-            
+
             lower_text = text_sample.lower()
 
             # Mark Scheme Heuristics
@@ -87,11 +88,11 @@ class PaperTypeDetector:
                 "soft pencil (type b or HB is recommended)",
                 "read the instructions on the answer sheet"
             ]
-            
+
             mcq_hits = sum(1 for kw in mcq_keywords if kw in lower_text)
             if mcq_hits >= 2:
                 return PaperCategory.MCQ_QP
-                
+
             return PaperCategory.ESSAY_QP
         except Exception as e:
             logger.error(f"Error scanning content of {pdf_path}: {e}")

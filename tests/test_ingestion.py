@@ -1,9 +1,10 @@
 import json
+
 import pytest
-from pathlib import Path
+
+from pipeline.ingestion.firebase_storage import FirebaseStorageManager
 from pipeline.ingestion.postgres_client import PostgresClient
 from pipeline.ingestion.postgres_ingestor import PostgresIngestor
-from pipeline.ingestion.firebase_storage import FirebaseStorageManager
 
 
 def test_parse_paper_filename():

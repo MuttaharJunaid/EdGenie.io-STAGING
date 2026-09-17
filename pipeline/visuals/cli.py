@@ -7,20 +7,20 @@ patches Stage 2 question JSON files.
 """
 import json
 import logging
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+import dotenv
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
-import dotenv
 dotenv.load_dotenv()
 
 from pipeline.config import settings
 from pipeline.visuals.extractor import CambridgeVisualExtractor
+from pipeline.visuals.manifest_patcher import patch_records_with_manifest
 
 app = typer.Typer(help="EdGenie Stage 3 — Visual Extraction CLI (Cambridge Layout-Anchored)")
 console = Console()
@@ -38,12 +38,12 @@ def setup_logging(level: str) -> None:
 
 def extract_visuals_for_pdf(
     pdf_path: Path,
-    json_path: Optional[Path] = None,
+    json_path: Path | None = None,
     force: bool = False,
     dpi: int = 300,
     min_vector_area: float = 400.0,
-    paper_type: Optional[str] = None,
-) -> Optional[List[Dict[str, Any]]]:
+    paper_type: str | None = None,
+) -> list[dict[str, Any]] | None:
     """
     Core extraction function for a single PDF.
     Returns list of manifest dicts or None if skipped/empty.
@@ -75,7 +75,7 @@ def extract_visuals_for_pdf(
 
     # Run extraction
     extractor = CambridgeVisualExtractor(dpi=dpi, min_vector_area=min_vector_area)
-    force_mcq: Optional[bool] = None
+    force_mcq: bool | None = None
     if paper_type:
         pt_norm = paper_type.strip().lower()
         if pt_norm == "mcq":
@@ -140,9 +140,9 @@ def extract_visuals_for_pdf(
 @app.command()
 def extract(
     pdf_path: str = typer.Option(..., "--pdf", "-p", help="Path to raw exam PDF file"),
-    paper_type: Optional[str] = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
-    type: Optional[str] = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
-    json_path: Optional[str] = typer.Option(
+    paper_type: str | None = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
+    type: str | None = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
+    json_path: str | None = typer.Option(
         None, "--json", "-j",
         help="Path to Stage 2 JSON (for auto-patching question image fields)"
     ),
@@ -170,8 +170,8 @@ def extract(
 @app.command()
 def extract_dir(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory of PDF files"),
-    paper_type: Optional[str] = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
-    type: Optional[str] = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
+    paper_type: str | None = typer.Argument(None, help="Paper type override: 'essay' or 'mcq' (can be passed at end of command)"),
+    type: str | None = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing visuals"),
     dpi: int = typer.Option(300, "--dpi", help="Render resolution DPI"),
     min_vector_area: float = typer.Option(400.0, "--min-vector-area", help="Minimum vector cluster area"),
@@ -216,13 +216,13 @@ def extract_dir(
 
 # ── JSON Patching Helper ──────────────────────────────────────────────────────
 
-def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> None:
+def _patch_question_json(json_path: Path, manifest: list[dict[str, Any]]) -> None:
     """
     Update the Stage 2 JSON file so each question's `image` field (and each
     part's `image` field) points to its extracted figures by question+part.
     """
     try:
-        with open(json_path, "r", encoding="utf-8") as f:
+        with open(json_path, encoding="utf-8") as f:
             records = json.load(f)
     except Exception as e:
         console.print(f"[yellow]Warning: could not read {json_path.name} for patching: {e}[/yellow]")
@@ -231,111 +231,8 @@ def _patch_question_json(json_path: Path, manifest: List[Dict[str, Any]]) -> Non
     if not records or not manifest:
         return
 
-    # Group manifest relative paths by (question, part)
-    # part == None or "stem" → question-level image
-    q_to_stem_files: Dict[int, List[str]] = {}
-    q_part_to_files: Dict[Tuple[int, str], List[str]] = {}
-    for entry in manifest:
-        q = entry.get("question")
-        if q is None:
-            continue
-        q_int = int(q)
-        target_type = entry.get("target_type")
-        target_label = entry.get("target_label")
-        part = entry.get("part") or ""
-        rp = entry.get("relative_path", "")
-        if target_type == "question" or (target_type is None and part in ("question", "stem", "")):
-            q_to_stem_files.setdefault(q_int, []).append(rp)
-        else:
-            clean_part = str(target_label if (target_type in ("part", "sub_part") and target_label) else re.sub(r"^(?:sub_)?part_", "", part)).strip()
-            def _add_part_file(k: Tuple[int, str], file_path: str):
-                flist = q_part_to_files.setdefault(k, [])
-                if file_path not in flist:
-                    flist.append(file_path)
+    patched = patch_records_with_manifest(records, manifest)
 
-            m_comp = re.match(r"^([a-z])\s*\(?([ivx\d]+)\)?$", clean_part, re.IGNORECASE)
-            if m_comp:
-                p_l, sp_r = m_comp.group(1).lower(), m_comp.group(2).lower()
-                _add_part_file((q_int, f"{p_l}({sp_r})"), rp)
-                _add_part_file((q_int, f"{p_l}{sp_r}"), rp)
-            else:
-                norm_part = clean_part.strip("() ").lower()
-                if norm_part:
-                    _add_part_file((q_int, norm_part), rp)
-                    _add_part_file((q_int, f"({norm_part})"), rp)
-
-    def _is_image_compatible_with_question(img_path: str, q_target: int) -> bool:
-        """Sanity guard: ensure image file does not belong to a different question."""
-        m_q = re.search(r"_q(\d+)_", img_path)
-        if m_q and int(m_q.group(1)) != q_target:
-            return False
-        m_fig = re.search(r"Fig_(\d+)_", img_path)
-        if m_fig and int(m_fig.group(1)) != q_target:
-            return False
-        m_tab = re.search(r"Table_(\d+)_", img_path)
-        if m_tab and int(m_tab.group(1)) != q_target:
-            return False
-        return True
-
-    patched = 0
-    for record in records:
-        q_raw = record.get("QuestionNumber") or record.get("AnswerNumber") or ""
-        m = re.search(r"(?:Q|q)?(\d+)(?:\([a-z]\))?$", str(q_raw).split("/")[-1].strip())
-        if not m:
-            continue
-        q_num = int(m.group(1))
-
-        # Patch question-level image (stem figures)
-        stem_candidates = [
-            f for f in q_to_stem_files.get(q_num, [])
-            if _is_image_compatible_with_question(f, q_num)
-        ]
-        if stem_candidates:
-            record["image"] = stem_candidates if len(stem_candidates) > 1 else stem_candidates[0]
-            patched += 1
-
-        # Patch part-level and nested sub-part images recursively
-        def _patch_tree_images(node: Dict[str, Any], is_top: bool = False, parent_lbl: str = "") -> int:
-            label_key = "part_label" if is_top else "sub_part_label"
-            plabel = str(node.get(label_key, "")).strip()
-            cnt = 0
-            if plabel:
-                candidates = [
-                    plabel,
-                    plabel.strip("() ").lower(),
-                    f"({plabel.strip('() ').lower()})",
-                ]
-                if parent_lbl:
-                    clean_leaf = plabel.strip("() ").lower()
-                    if clean_leaf.startswith(parent_lbl):
-                        clean_leaf = clean_leaf[len(parent_lbl):].strip("() ")
-                    candidates.extend([
-                        f"{parent_lbl}({clean_leaf})",
-                        f"{parent_lbl}{clean_leaf}",
-                    ])
-
-                part_files = None
-                for cand in candidates:
-                    if cand and (q_num, cand) in q_part_to_files:
-                        matching_files = [
-                            f for f in q_part_to_files[(q_num, cand)]
-                            if _is_image_compatible_with_question(f, q_num)
-                        ]
-                        if matching_files:
-                            part_files = matching_files
-                            break
-                if part_files:
-                    node["image"] = part_files if len(part_files) > 1 else part_files[0]
-                    cnt += 1
-                else:
-                    node["image"] = None
-            curr_lbl = plabel.strip("() ").lower() if is_top else parent_lbl
-            for sp in node.get("sub_parts", []):
-                cnt += _patch_tree_images(sp, is_top=False, parent_lbl=curr_lbl)
-            return cnt
-
-        for part_rec in record.get("Parts", []):
-            patched += _patch_tree_images(part_rec, is_top=True)
 
 
     if patched:

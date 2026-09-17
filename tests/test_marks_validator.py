@@ -8,7 +8,6 @@ Unit tests for MarkHierarchyValidator:
 - Discrepancy detection and correction
 """
 
-import pytest
 from pipeline.extractor.marks_validator import MarkHierarchyValidator
 
 

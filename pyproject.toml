@@ -15,6 +15,7 @@ dependencies = [
     "requests>=2.32",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
+    "playwright>=1.40",
 
     # CLI
     "typer[all]>=0.12",
@@ -27,24 +28,16 @@ dependencies = [
     # Utilities
     "tenacity>=9.0",
 
-    # PDF & Data processing (Stage 2)
+    # PDF & Data processing
     "pymupdf>=1.24.0",
-    "pdfplumber>=0.11.0",
     "pandas>=2.0.0",
 
-    # AI & Agents (Stage 2 & Orchestrator)
-    "langchain>=0.2.0",
-    "langchain-core>=0.2.0",
-    "langchain-openai>=0.1.0",
-    "langchain-anthropic>=0.1.0",
-    "langchain-google-genai>=0.1.0",
+    # AI & LLM (Extraction + Classification)
+    "google-genai>=0.7.0",
+    "openai>=1.0.0",
 
     # Image processing (Stage 3)
     "Pillow>=10.0",
-    "cairosvg>=2.7",
-
-    # Browser automation (Stage 3 — visual extraction)
-    "playwright>=1.45",
 
     # Database & Cloud Storage (Stage 4 — Ingestion & Assets)
     "psycopg[binary]>=3.1",

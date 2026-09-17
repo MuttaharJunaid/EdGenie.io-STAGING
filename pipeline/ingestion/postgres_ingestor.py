@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pipeline.extractor.paper_type_detector import PaperCategory, PaperTypeDetector
 from pipeline.ingestion.postgres_client import PostgresClient
@@ -30,17 +30,17 @@ class PostgresIngestor:
     requiring cloud storage credentials.
     """
 
-    def __init__(self, db_client: Optional[PostgresClient] = None, cdn_prefix: str = CDN_DOMAIN_PREFIX):
+    def __init__(self, db_client: PostgresClient | None = None, cdn_prefix: str = CDN_DOMAIN_PREFIX):
         self.db = db_client or PostgresClient()
         self.cdn_prefix = cdn_prefix.rstrip("/")
 
-    def parse_paper_filename(self, filename: str) -> Dict[str, Any]:
+    def parse_paper_filename(self, filename: str) -> dict[str, Any]:
         """
         Parses standard Cambridge filename pattern like '5054_s25_qp_22.json' or '5054_w18_ms_11.pdf'.
         Robust to prefixes/suffixes like 'mock_5054_s25_qp_22.json'.
         """
         stem = Path(filename).stem
-        
+
         # 1. Primary regex match: e.g. 5054_s25_qp_22
         match = re.search(r"(\d{4})_([swm]\d{2})_(qp|ms|er|gt|ci)_(\d{1,2})", stem, re.IGNORECASE)
         if match:
@@ -79,7 +79,7 @@ class PostgresIngestor:
             "paper_number": 1,
         }
 
-    def ingest_paper_json(self, json_path: Path, force: bool = False) -> Dict[str, Any]:
+    def ingest_paper_json(self, json_path: Path, force: bool = False) -> dict[str, Any]:
         """
         Ingests a single Stage 2 paper JSON file and its Stage 3 visual manifest into PostgreSQL.
         """
@@ -87,8 +87,8 @@ class PostgresIngestor:
         if not json_path.exists():
             raise FileNotFoundError(f"JSON file not found: {json_path}")
 
-        with open(json_path, "r", encoding="utf-8") as f:
-            records: List[Dict[str, Any]] = json.load(f)
+        with open(json_path, encoding="utf-8") as f:
+            records: list[dict[str, Any]] = json.load(f)
 
         if not records:
             logger.warning(f"No question/answer records found in {json_path.name}")
@@ -143,8 +143,8 @@ class PostgresIngestor:
         self.db.upsert_paper(paper_record)
 
         # 2. Ingest Questions / Answers
-        questions_to_upsert: List[Dict[str, Any]] = []
-        answers_to_upsert: List[Dict[str, Any]] = []
+        questions_to_upsert: list[dict[str, Any]] = []
+        answers_to_upsert: list[dict[str, Any]] = []
 
         is_ms = paper_type == "ms" or "ms" in category.value
 
@@ -248,11 +248,11 @@ class PostgresIngestor:
         # 3. Ingest Visual Manifest if present
         visuals_dir = json_path.parent / json_path.stem
         visual_manifest_path = visuals_dir / "manifest.json"
-        visuals_to_upsert: List[Dict[str, Any]] = []
+        visuals_to_upsert: list[dict[str, Any]] = []
 
         if visual_manifest_path.exists():
             try:
-                with open(visual_manifest_path, "r", encoding="utf-8") as mf:
+                with open(visual_manifest_path, encoding="utf-8") as mf:
                     v_entries = json.load(mf)
                 for v in v_entries:
                     v_fname = v.get("filename") or v.get("file")
@@ -295,7 +295,7 @@ class PostgresIngestor:
             "pdf_cdn_url": pdf_cdn_url,
         }
 
-    def ingest_directory(self, dir_path: Path, force: bool = False) -> Dict[str, Any]:
+    def ingest_directory(self, dir_path: Path, force: bool = False) -> dict[str, Any]:
         """
         Recursively ingests all paper JSON files inside a directory into PostgreSQL.
         Ensures Question Papers are ingested before Mark Schemes to maintain logical consistency.
@@ -312,7 +312,7 @@ class PostgresIngestor:
         paper_jsons = [j for j in all_json if not j.name.endswith("manifest.json")]
 
         # Sort so that _qp_ files are processed before _ms_ files
-        def sort_key(p: Path) -> Tuple[int, str]:
+        def sort_key(p: Path) -> tuple[int, str]:
             # 0 for qp, 1 for ms, 2 for other
             priority = 0 if "_qp_" in p.name else (1 if "_ms_" in p.name else 2)
             return (priority, p.name)

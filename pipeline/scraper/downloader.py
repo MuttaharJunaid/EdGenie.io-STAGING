@@ -1,9 +1,10 @@
+import hashlib
 import logging
 import time
 from pathlib import Path
-import hashlib
+
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from pipeline.config import settings
 
@@ -46,12 +47,12 @@ class PDFDownloader:
     def _download_with_retry(self, url: str, dest_path: Path) -> tuple[int, str]:
         """Performs the actual download with retry rules."""
         logger.debug(f"Requesting URL: {url}")
-        
+
         # We need to make a request and download the file stream.
         # Note: download_file.php might return 302 or direct download. requests handles redirects automatically.
         try:
             response = self.session.get(url, stream=True, timeout=self.timeout)
-            
+
             # Raise exception on HTTP errors
             if response.status_code == 429:
                 logger.warning("HTTP 429 Rate Limit hit. Backing off...")
@@ -69,10 +70,10 @@ class PDFDownloader:
 
             # Create destination parent directories if they don't exist
             dest_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             # Temporary file to download content to prevent incomplete files on disk
             temp_path = dest_path.with_suffix(dest_path.suffix + ".tmp")
-            
+
             total_bytes = 0
             with open(temp_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
@@ -89,10 +90,10 @@ class PDFDownloader:
                     raise DownloadError(
                         f"Size mismatch: downloaded {total_bytes} bytes, expected {expected_bytes} bytes."
                     )
-            
+
             # Rename temp file to final destination
             temp_path.replace(dest_path)
-            
+
             # Calculate SHA-256
             sha256_hash = self._calculate_sha256(dest_path)
             return total_bytes, sha256_hash

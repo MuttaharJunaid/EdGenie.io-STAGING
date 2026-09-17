@@ -1,7 +1,6 @@
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +17,8 @@ class FirebaseStorageManager:
     def __init__(
         self,
         cdn_prefix: str = CDN_DOMAIN_PREFIX,
-        bucket_name: Optional[str] = None,
-        credentials_path: Optional[str] = None,
+        bucket_name: str | None = None,
+        credentials_path: str | None = None,
     ):
         self.cdn_prefix = cdn_prefix.rstrip("/")
         self.bucket_name = bucket_name or os.getenv("FIREBASE_STORAGE_BUCKET", "edgenie-app.appspot.com")
@@ -107,7 +106,7 @@ class FirebaseStorageManager:
         dest_path = f"visuals/{paper_stem}/{image_path.name}"
         return self.upload_file(image_path, dest_path)
 
-    def sync_storage_dir(self, storage_dir: Path) -> Dict[str, str]:
+    def sync_storage_dir(self, storage_dir: Path) -> dict[str, str]:
         """
         Uploads all PDFs and visual images from local storage directory to Firebase Storage.
         Returns dict mapping local relative path to CDN URL.

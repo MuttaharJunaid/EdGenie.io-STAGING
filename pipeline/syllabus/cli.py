@@ -29,7 +29,6 @@ Automated Production Flow
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 import dotenv
 import typer
@@ -71,13 +70,13 @@ def build(
         "-l",
         help="Qualification level: o-level | a-level | igcse",
     ),
-    output_dir: Optional[str] = typer.Option(
+    output_dir: str | None = typer.Option(
         None,
         "--output-dir",
         "-o",
         help="Directory to save the CSV (default: syllabi/ in project root)",
     ),
-    pdf_path: Optional[str] = typer.Option(
+    pdf_path: str | None = typer.Option(
         None,
         "--pdf",
         "-p",
@@ -91,7 +90,6 @@ def build(
     to extract a structured CSV into the syllabi/ directory.
     """
     setup_logging(log_level)
-    logger = logging.getLogger(__name__)
 
     # Validate level
     level_normalised = level.lower().strip()
@@ -130,7 +128,7 @@ def build(
             raise typer.Exit(code=1)
         console.print(f"\n[bold blue]Using provided local PDF:[/bold blue] {resolved_pdf}")
     else:
-        console.print(f"\n[bold blue]1. Crawling Cambridge website for official syllabus PDF...[/bold blue]")
+        console.print("\n[bold blue]1. Crawling Cambridge website for official syllabus PDF...[/bold blue]")
         with console.status("[bold green]Navigating Cambridge portal & inspecting candidate PDFs (>3 pages)..."):
             try:
                 resolved_pdf, page_count = builder.crawler.fetch_syllabus_pdf(subject, code, level_normalised)
@@ -144,7 +142,7 @@ def build(
         )
 
     # Step 2: Extract structured content via Gemini
-    console.print(f"\n[bold blue]2. Extracting syllabus content with Gemini...[/bold blue]")
+    console.print("\n[bold blue]2. Extracting syllabus content with Gemini...[/bold blue]")
     with console.status("[bold green]Sending PDF to Gemini for structured extraction…"):
         try:
             rows = builder.extract_from_pdf(resolved_pdf, subject, code, level_normalised)
@@ -159,7 +157,7 @@ def build(
     console.print(f"[green]✓ Successfully extracted [bold]{len(rows)}[/bold] learning objectives.[/green]")
 
     # Step 3: Save CSV
-    console.print(f"\n[bold blue]3. Saving CSV to syllabi directory...[/bold blue]")
+    console.print("\n[bold blue]3. Saving CSV to syllabi directory...[/bold blue]")
     if output_dir:
         out_dir = Path(output_dir)
     else:
@@ -194,7 +192,7 @@ def build(
 
 @app.command(name="list")
 def list_syllabi(
-    directory: Optional[str] = typer.Option(
+    directory: str | None = typer.Option(
         None, "--dir", "-d", help="Syllabi directory (default: syllabi/ in project root)"
     )
 ):

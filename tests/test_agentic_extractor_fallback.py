@@ -7,8 +7,7 @@ Unit tests for:
 - ClassifierAgent priority inversion (OpenRouter 1st, Gemini fallback)
 """
 
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import patch
 
 from pipeline.extractor.agentic_extractor import AgenticExtractor
 from pipeline.extractor.classifier_agent import ClassifierAgent

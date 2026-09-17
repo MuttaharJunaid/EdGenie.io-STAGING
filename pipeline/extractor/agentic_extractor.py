@@ -7,23 +7,22 @@ Extracts question text, options, hierarchical parts, and mark schemes
 using Google Gemini (full-PDF multimodal primary + page-by-page chunked fallback).
 """
 
-import base64
 import json
 import logging
 import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pymupdf as fitz
 from google import genai
 from google.genai import types
 
 from pipeline.config import settings
-from pipeline.extractor.paper_type_detector import PaperCategory
-from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
 from pipeline.extractor.marks_validator import MarkHierarchyValidator
+from pipeline.extractor.paper_type_detector import PaperCategory
+from pipeline.extractor.text_utils import clean_answer_prompts, clean_math_text
 from pipeline.extractor.schemas import (
     EssayAnswersContainer,
     EssayQuestionsContainer,
@@ -44,12 +43,12 @@ class AgenticExtractor:
 
     def __init__(
         self,
-        model_name: Optional[str] = None,
+        model_name: str | None = None,
     ):
         self.model_name = model_name or getattr(settings, "llm_model", "gemini-2.5-flash")
-        self._gemini_client: Optional[genai.Client] = None
+        self._gemini_client: genai.Client | None = None
         self._gemini_quota_exhausted: bool = False
-        self._gemini_cooldown_until: Optional[float] = None
+        self._gemini_cooldown_until: float | None = None
 
     @property
     def is_gemini_available(self) -> bool:
@@ -73,7 +72,7 @@ class AgenticExtractor:
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
-    def _fmt_qnum(self, q_raw: Any, meta: Dict[str, Any]) -> str:
+    def _fmt_qnum(self, q_raw: Any, meta: dict[str, Any]) -> str:
         """Ensure QuestionNumber/AnswerNumber is formatted as Session/Variant/Year/QN."""
         session = str(meta.get("session", "jun")).capitalize()
         variant = str(meta.get("variant", "11"))
@@ -120,6 +119,36 @@ CRITICAL MATHEMATICAL NOTATION & SYMBOL RULES:
 8. Other Symbols: Preserve inequalities (≤, ≥, <, >, ≠), degrees (°), Greek letters (π, θ, α, β, Δ, Ω), square roots (√x), and set symbols (∈, ∉, ∪, ∩, ∅).
 """
 
+    TEXT_FORMATTING_INSTRUCTIONS = """
+CRITICAL TEXT FORMATTING, NEWLINES, INDENTATION & DIAGRAM LABEL RULES:
+Verbatim transcription MUST preserve the original document layout, paragraph breaks, and visual indentation, while excluding labels from diagrams/tables:
+
+1. PARAGRAPH BREAKS (\\n\\n):
+   - Every distinct paragraph printed in the examination paper MUST be separated by a double newline ("\\n\\n").
+   - NEVER flatten or merge multiple paragraphs into a single continuous run of prose.
+   - If an introductory scenario, question stem, or description contains multiple paragraphs (e.g. background context, method, figure descriptions), each paragraph must be separated by "\\n\\n".
+
+2. INDENTATION & LISTS:
+   - When text contains numbered steps, bullet points, experimental procedures, apparatus lists, or sub-clauses, preserve their distinct lines with a single newline ("\\n").
+   - Preserve hierarchical indentation using 2 or 4 leading spaces ("  " or "    ") for items indented under a heading or step.
+   Example:
+     A student was provided with:
+       - 4 test-tubes labelled A, B, C, D
+       - 10 cm³ of dilute hydrochloric acid
+       - a stop-clock
+
+3. STRICT QUESTION STEM vs. PART BOUNDARY:
+   - ALL text, scenario setups, experimental procedures, apparatus descriptions, and instructions appearing BEFORE the printed label '(a)' belong STRICTLY and EXCLUSIVELY to "Question_text".
+   - NEVER place pre-'(a)' text into "part_text" of part (a).
+   - "part_text" MUST ONLY contain text printed AFTER the label '(a)' and before the first subpart '(i)' (or part '(b)').
+   - If a multi-page question has setup text spanning across one or more entire pages before part '(a)' appears, ALL of that text belongs to "Question_text" of that question.
+   - For subsequent parts (e.g., '(b)', '(c)'), text following that letter and before any sub-parts belongs strictly to that part's "part_text".
+
+4. EXCLUDE DIAGRAM & TABLE LABELS / CALLOUTS:
+   - Any text label, pointer arrow text, component name, axis callout, or annotation shown NEAR, INSIDE, or ATTACHED to a diagram, graph, apparatus illustration, or table (for example: "radicle", "cork base", "electric motor to turn cork base", "direction of movement", "A", "B", "seed 1", "seed 2") must NOT be transcribed into Question_text, part_text, or sub_part_text.
+   - These visual labels belong strictly to the extracted diagram/image itself, NEVER to the question text.
+"""
+
     SANITY_CHECK_INSTRUCTIONS = """
 POST-EXTRACTION SANITY CHECK:
 Before outputting the final JSON response, perform a mandatory verification check:
@@ -129,6 +158,9 @@ Before outputting the final JSON response, perform a mandatory verification chec
 4. Mark Scheme Answer_text Check: If solutions exist under individual parts (a, b, etc.) and there is NO overarching question text, ensure "Answer_text" is strictly "" (empty string). DO NOT output gibberish, placeholder characters (e.g. '...', '---', 'N/A', 'None'), or duplicate part text in "Answer_text".
 5. Question Paper Topic/Unit Check: In question papers, Unit, Topic, Topic_name, and Sub_topic MUST be strictly null (do NOT classify or guess topics).
 6. Marks Guarantee & Sum Consistency: Confirm that leaf marks >= 1, sum of sub-parts equals part marks, and sum of parts equals question Marks.
+7. Newlines & Indentation Check: Confirm that distinct paragraphs are separated by "\\n\\n" and not flattened into single-line strings. Confirm that indented lists or procedures retain their leading spaces and line breaks ("\\n").
+8. Question Stem vs Part (a) Boundary Check: Confirm that ALL text, experimental setups, and background descriptions preceding label '(a)' are in "Question_text", and NOT in part (a)'s "part_text".
+9. Diagram & Table Labels Check: Confirm that NO diagram callouts, pointer labels, or annotations shown near a diagram or table (e.g., 'radicle', 'cork base', 'direction of movement') are transcribed into Question_text, part_text, or sub_part_text.
 """
 
     MARKS_INSTRUCTIONS = """
@@ -144,25 +176,91 @@ CRITICAL MARK ALLOCATION & HIERARCHY RULES:
 7. Leaf Marks >= 1: Every leaf part, sub-part, or question must have marks >= 1 (never 0).
 """
 
-    def _get_page_prompt(
+    TABLE_FORMATTING_INSTRUCTIONS = """
+CRITICAL TABLE & LEDGER FORMATTING RULES:
+Cambridge examination papers — especially Accounts, Business, Economics, and Sciences — frequently contain tabular data WITHOUT visible grid lines or borders. These MUST be faithfully encoded as structured text, not flattened into a plain prose string.
+
+1. MARKDOWN PIPE TABLES — Use for ANY multi-column data layout:
+   Whenever you see data arranged in columns (with or without drawn borders), encode it as a markdown pipe table.
+   Format:
+   | Column Header 1 | Column Header 2 | Column Header 3 |
+   |---|---|---|
+   | Row label       | Value A         | Value B         |
+   | Row label       | Value C         | Value D         |
+
+   Examples of data that MUST be encoded as pipe tables:
+   - Partner capital/current accounts (Chan $, David $, ...)
+   - Balance sheets (Assets column, Liabilities column)
+   - Income statements / profit & loss accounts
+   - Trial balances (Dr, Cr columns)
+   - Comparative tables (Year 1, Year 2, ...)
+   - Any scientific data table (pressure, volume, temperature columns)
+   - Mark scheme answer tables
+
+2. LEDGER INDENTATION — Preserve sub-item hierarchy with two-space indentation:
+   If a row is a sub-item under a heading (e.g. "Less: expenses" sub-items, or bracketed sub-entries), prefix it with two spaces per level of nesting:
+   | Sales revenue         | 50 000 |
+   |   Less: Cost of sales | 20 000 |
+   |   Gross profit        | 30 000 |
+   |     Less: Expenses    | 10 000 |
+   |     Net profit        | 20 000 |
+
+3. DASH/NIL VALUES — Preserve dashes (–) or hyphens (-) that represent nil/zero values exactly as they appear in the PDF. Do NOT replace them with 0 or omit them.
+
+4. CURRENCY SYMBOLS & SPACING — Preserve $ / £ / € symbols in column headers exactly as shown (e.g. "Chan $", "David $"). Do NOT move them to individual cells.
+
+5. SUBTOTALS & TOTALS — Lines that are underlined or double-underlined in the PDF represent subtotals or final totals. Represent these by placing the value on its own row and adding a separator row of dashes below:
+   | Gross profit          | 30 000 |
+   |---|---|
+   | Net profit            | 20 000 |
+   |===|===|
+
+6. SINGLE-COLUMN LISTS — If data appears in a single indented column (e.g. a list of assets stacked vertically with amounts to the right), still use a two-column pipe table:
+   | Item                         | Amount ($) |
+   |---|---|
+   | Intangible assets (goodwill) | 30 000     |
+   | Non-current (fixed) assets   | 23 000     |
+
+7. PLAIN PROSE — If the content is genuinely a sentence or paragraph (not columnar data), leave it as plain text. Do NOT force non-tabular content into a table.
+
+8. CONSISTENCY — Apply these rules to Question_text, part_text, sub_part_text, Answer_text, and part_answer fields equally. Tabular data in any field must always be a markdown pipe table.
+"""
+
+    def _build_extraction_prompt(
         self,
         category: PaperCategory,
-        pno: int,
-        total_pages: int,
-        meta: Dict[str, Any],
-    ) -> Tuple[Any, str]:
-        """Returns the target Pydantic container schema and page extraction prompt."""
+        meta: dict[str, Any],
+        is_full_pdf: bool = False,
+        pno: int = 0,
+        total_pages: int = 1,
+    ) -> tuple[Any, str]:
+        """Unified prompt and schema builder for both page-by-page and full-PDF extraction."""
         session = str(meta.get("session", "jun")).capitalize()
         variant = str(meta.get("variant", "11"))
         year = meta.get("year", 2023)
 
         if category == PaperCategory.MCQ_QP:
             schema = MCQQuestionsContainer
+            scope_desc = (
+                "the complete attached Multiple Choice Question (MCQ) past paper document."
+                if is_full_pdf
+                else f"this exact exam page (Page {pno + 1} of {total_pages}) from a Multiple Choice Question (MCQ) paper."
+            )
+            task_mcq_qp = (
+                "Extract ALL multiple-choice questions (e.g. Q1 through Q30 or Q40) across the entire paper in sequential order."
+                if is_full_pdf
+                else "Extract all multiple-choice questions appearing on THIS page."
+            )
+            rule1_mcq_qp = (
+                "1. Extract every single question in the paper. Do NOT combine questions."
+                if is_full_pdf
+                else "1. Extract ONLY questions visible on this page. DO NOT invent or duplicate questions from other pages."
+            )
             prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine this exact exam page (Page {pno + 1} of {total_pages}) from a Multiple Choice Question (MCQ) paper.
+Examine {scope_desc}
 
 TASK:
-Extract all multiple-choice questions appearing on THIS page.
+{task_mcq_qp}
 For each question:
 - QuestionNumber: E.g., "{session}/{variant}/{year}/Q1", "{session}/{variant}/{year}/Q2".
 - Question_text: The complete verbatim question stem text.
@@ -175,27 +273,47 @@ For each question:
 (Leave Unit, Topic, Topic_name, and Sub_topic strictly as null. Do NOT classify topics or syllabus.)
 
 CRITICAL RULES:
-1. Extract ONLY questions visible on this page. DO NOT invent or duplicate questions from other pages.
+{rule1_mcq_qp}
 2. DO NOT include header/footer boilerplate (e.g. "UCLES", "Turn over", candidate details).
+3. DO NOT extract labels, callouts, or annotations shown near or inside diagrams and tables (these belong strictly to the extracted images).
+
+{self.TEXT_FORMATTING_INSTRUCTIONS}
 
 {self.MATH_NOTATION_INSTRUCTIONS}
+
+{self.TABLE_FORMATTING_INSTRUCTIONS}
 
 {self.SANITY_CHECK_INSTRUCTIONS}
 """
 
         elif category == PaperCategory.MCQ_MS:
             schema = MCQAnswersContainer
+            scope_ms = (
+                "the complete attached Multiple Choice (MCQ) mark scheme document."
+                if is_full_pdf
+                else f"this exact mark scheme page (Page {pno + 1} of {total_pages}) for a Multiple Choice (MCQ) paper."
+            )
+            task_mcq_ms = (
+                "Extract all question numbers and their corresponding correct answer letter keys (A, B, C, or D) across the entire mark scheme."
+                if is_full_pdf
+                else "Extract all question numbers and their corresponding correct answer letter keys (A, B, C, or D) on THIS page."
+            )
+            rule1_mcq_ms = (
+                "1. Extract all answers in numerical order."
+                if is_full_pdf
+                else "1. Extract ONLY answers visible on this page."
+            )
             prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine this exact mark scheme page (Page {pno + 1} of {total_pages}) for a Multiple Choice (MCQ) paper.
+Examine {scope_ms}
 
 TASK:
-Extract all question numbers and their corresponding correct answer letter keys (A, B, C, or D) on THIS page.
+{task_mcq_ms}
 For each answer:
 - AnswerNumber: E.g., "{session}/{variant}/{year}/Q1", "{session}/{variant}/{year}/Q2".
 - Answer: The single uppercase letter (A, B, C, or D).
 
 CRITICAL RULES:
-1. Extract ONLY answers visible on this page.
+{rule1_mcq_ms}
 2. DO NOT include headers or footers.
 
 {self.SANITY_CHECK_INSTRUCTIONS}
@@ -203,162 +321,67 @@ CRITICAL RULES:
 
         elif category == PaperCategory.ESSAY_QP:
             schema = EssayQuestionsContainer
+            scope_essay_qp = (
+                "the complete attached Cambridge examination past paper document for a structured/essay theory paper."
+                if is_full_pdf
+                else f"this exact exam page (Page {pno + 1} of {total_pages}) from a structured/essay theory paper."
+            )
+            task_essay_qp = (
+                "Extract ALL questions, parts, and sub-parts across the entire paper in sequential order (Q1 through the end of the paper)."
+                if is_full_pdf
+                else "Extract all questions, parts, and sub-parts appearing on THIS page."
+            )
+            rule1_essay_qp = (
+                "1. Extract ALL questions from Q1 to the end of the paper without omitting any question."
+                if is_full_pdf
+                else "1. Extract ONLY questions and parts visible on this page."
+            )
+            marks_desc = (
+                "Total marks allocated to the question (sum of all parts and subparts)."
+                if is_full_pdf
+                else "Total marks allocated to the question on this page (sum of parts/subparts)."
+            )
             prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine this exact exam page (Page {pno + 1} of {total_pages}) from a structured/essay theory paper.
+Examine {scope_essay_qp}
 
 TASK:
-Extract all questions, parts, and sub-parts appearing on THIS page.
+{task_essay_qp}
 
 STRUCTURE OF QUESTIONS, PARTS, AND SUB-PARTS:
 - A question may contain:
-  1. Main preamble/stem text in "Question_text" (e.g. "A car travels along a straight road..."). If a question continues from a previous page without a new stem, leave "Question_text": "".
-  2. If the question has NO parts or subparts (e.g. a single-part mathematics question):
-     - Put all question text in "Question_text".
-     - Set "Parts": [].
-     - "Marks": integer marks for the question [N].
-   3. If the question has parts (e.g. (a), (b), (c)):
-     - "part_label": "a", "b", etc.
-     - "part_text": Introductory text or question text for that part. If part (a) immediately divides into (i) and (ii), place any introductory sentence in "part_text" (or "" if none).
-     - "marks": mark allocation integer [N] indicated in brackets (e.g. [2] -> 2). If part divides into sub-parts, part.marks MUST equal the sum of its sub-parts' marks.
-     - "sub_parts": If part (a) or (b) has nested sub-parts (e.g. roman numerals (i), (ii)):
-       - "sub_part_label": Strictly formatted with parentheses, e.g. "(i)", "(ii)", "(iii)", "(iv)". NEVER use "ai", "aii", "aiii", "a(i)", or "b(i)".
-       - "sub_part_text": verbatim text of the sub-part (strip trailing [N] bracket from text).
-       - "marks": explicit integer marks indicated in brackets [N] for this sub-part (e.g. [1] -> 1, [2] -> 2). Leaf sub-parts must have marks >= 1.
-       - "sub_parts": Any deeper nested sub-subparts (e.g. "(1)", "(a)"), else empty list [].
-- "Marks": Total marks allocated to the question on this page (sum of parts/subparts).
-- Leave Unit, Topic, Topic_name, and Sub_topic strictly as null (do NOT classify topics or syllabus; classification is performed in a separate stage).
-
-CRITICAL RULES:
-1. Extract ONLY questions and parts visible on this page.
-2. DO NOT include answer blanks, dotted lines, or response prompts (e.g. "...................", "height = ..........", "Answer: [ ]").
-3. DO NOT include header/footer boilerplate (e.g. "UCLES", "Turn over", "[Total: 15]").
-4. Every leaf part, sub-part, and question must have marks >= 1 (never 0).
-
-{self.MATH_NOTATION_INSTRUCTIONS}
-
-{self.MARKS_INSTRUCTIONS}
-
-{self.SANITY_CHECK_INSTRUCTIONS}
-"""
-
-        elif category == PaperCategory.ESSAY_MS:
-            schema = EssayAnswersContainer
-            prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine this exact mark scheme page (Page {pno + 1} of {total_pages}) for a structured/essay theory paper.
-
-TASK:
-Extract all question solutions, marking points, and criteria visible on THIS page.
-For each question:
-- AnswerNumber: E.g., "{session}/{variant}/{year}/Q1", "{session}/{variant}/{year}/Q7".
-- Answer_text: General answer guidelines or main answer ONLY IF there is an overarching question solution without parts.
-  CRITICAL: If the solutions are divided into parts (e.g. part (a), (b), etc.) and there is NO overarching/main text for the question as a whole, set "Answer_text": "" (empty string). DO NOT put gibberish, placeholder text (such as '...', '---', 'N/A', 'None'), duplicate part text, or table headers into "Answer_text" when text only belongs in the parts.
-- Parts: List of part answers matching the question parts:
-  - part_label: e.g. "a", "b", "(i)", "(ii)".
-  - part_answer: suggested answer text, formulas, or marking criteria.
-
-CRITICAL RULES:
-1. Extract ONLY solutions visible on this page.
-2. DO NOT include header/footer boilerplate.
-3. NEVER put gibberish or placeholder characters into "Answer_text" when answers belong to individual parts.
-
-{self.MATH_NOTATION_INSTRUCTIONS}
-
-{self.SANITY_CHECK_INSTRUCTIONS}
-"""
-        else:
-            raise ValueError(f"AgenticExtractor: unsupported category {category}")
-
-        return schema, prompt
-
-    def _get_full_pdf_prompt(
-        self,
-        category: PaperCategory,
-        meta: Dict[str, Any],
-    ) -> Tuple[Any, str]:
-        """Returns the target Pydantic container schema and prompt for full-PDF single-call Gemini extraction."""
-        session = str(meta.get("session", "jun")).capitalize()
-        variant = str(meta.get("variant", "11"))
-        year = meta.get("year", 2023)
-
-        if category == PaperCategory.MCQ_QP:
-            schema = MCQQuestionsContainer
-            prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine the complete attached Multiple Choice Question (MCQ) past paper document.
-
-TASK:
-Extract ALL multiple-choice questions (e.g. Q1 through Q30 or Q40) across the entire paper in sequential order.
-For each question:
-- QuestionNumber: E.g., "{session}/{variant}/{year}/Q1", "{session}/{variant}/{year}/Q2".
-- Question_text: The complete verbatim question stem text.
-- Options: An object with keys "A", "B", "C", "D" containing the text for each choice.
-- Marks: 1 for every MCQ question.
-- Unit: null
-- Topic: null
-- Topic_name: null
-- Sub_topic: null
-(Leave Unit, Topic, Topic_name, and Sub_topic strictly as null. Do NOT classify topics or syllabus.)
-
-CRITICAL RULES:
-1. Extract every single question in the paper. Do NOT combine questions.
-2. DO NOT include header/footer boilerplate (e.g. "UCLES", "Turn over", candidate details).
-
-{self.MATH_NOTATION_INSTRUCTIONS}
-
-{self.SANITY_CHECK_INSTRUCTIONS}
-"""
-
-        elif category == PaperCategory.MCQ_MS:
-            schema = MCQAnswersContainer
-            prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine the complete attached Multiple Choice (MCQ) mark scheme document.
-
-TASK:
-Extract all question numbers and their corresponding correct answer letter keys (A, B, C, or D) across the entire mark scheme.
-For each answer:
-- AnswerNumber: E.g., "{session}/{variant}/{year}/Q1", "{session}/{variant}/{year}/Q2".
-- Answer: The single uppercase letter (A, B, C, or D).
-
-CRITICAL RULES:
-1. Extract all answers in numerical order.
-2. DO NOT include headers or footers.
-
-{self.SANITY_CHECK_INSTRUCTIONS}
-"""
-
-        elif category == PaperCategory.ESSAY_QP:
-            schema = EssayQuestionsContainer
-            prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine the complete attached Cambridge examination past paper document for a structured/essay theory paper.
-
-TASK:
-Extract ALL questions, parts, and sub-parts across the entire paper in sequential order (Q1 through the end of the paper).
-
-STRUCTURE OF QUESTIONS, PARTS, AND SUB-PARTS:
-- A question may contain:
-  1. Main preamble/scenario text in "Question_text" (e.g. "A train travels along a straight track...").
+  1. Main preamble/scenario text in "Question_text":
+     - ALL text, scenario setups, experimental procedures, apparatus descriptions, and instructions appearing BEFORE the printed label '(a)' belong strictly and exclusively to "Question_text".
+     - If a question continues across multiple pages before part '(a)' appears, ALL of that introductory text belongs in "Question_text".
+     - If a question continues from a previous page without a new stem, leave "Question_text": "".
   2. If the question has NO parts or subparts (e.g. a single-part mathematics question):
      - Put all question text in "Question_text".
      - Set "Parts": [].
      - "Marks": integer marks for the question indicated in brackets [N].
-   3. If the question has parts (e.g. (a), (b), (c)):
+  3. If the question has parts (e.g. (a), (b), (c)):
      - "part_label": "a", "b", "c", etc. (lowercase letter without parentheses).
-     - "part_text": Text for that part. If part (a) immediately divides into (i) and (ii), place any introductory sentence in "part_text" (or "" if none).
+     - "part_text": Text for that part. Begins ONLY after the printed '(a)' label. If part (a) immediately divides into (i) and (ii), place any introductory sentence printed AFTER '(a)' in "part_text" (or "" if none). NEVER place pre-'(a)' scenario text in "part_text".
      - "marks": mark allocation integer [N] indicated in brackets (e.g. [2] -> 2). If part divides into sub-parts, part.marks MUST equal the sum of its sub-parts' marks.
      - "sub_parts": If part (a) or (b) has nested sub-parts (e.g. roman numerals (i), (ii)):
        - "sub_part_label": Strictly roman numerals in parentheses, e.g. "(i)", "(ii)", "(iii)", "(iv)". NEVER use "ai", "aii", "aiii", "a(i)", or "b(i)".
        - "sub_part_text": verbatim text of the sub-part (strip trailing [N] bracket from text).
        - "marks": explicit integer marks indicated in brackets [N] for this sub-part (e.g. [1] -> 1, [2] -> 2). Leaf sub-parts must have marks >= 1.
        - "sub_parts": Any deeper nested sub-subparts (e.g. "(1)", "(a)"), else empty list [].
-- "Marks": Total marks allocated to the question (sum of all parts and subparts).
+- "Marks": {marks_desc}
 - Leave Unit, Topic, Topic_name, and Sub_topic strictly as null (do NOT classify topics or syllabus; classification is performed in a separate stage).
 
 CRITICAL RULES:
-1. Extract ALL questions from Q1 to the end of the paper without omitting any question.
+{rule1_essay_qp}
 2. DO NOT include answer blanks, dotted lines, or response prompts (e.g. "...................", "height = ..........", "Answer: [ ]").
 3. DO NOT include header/footer boilerplate (e.g. "UCLES", "Turn over", candidate instructions).
 4. Every leaf part, sub-part, and question must have marks >= 1 (never 0).
+5. Pre-'(a)' scenario text and apparatus descriptions belong STRICTLY to "Question_text", NEVER to "part_text".
+6. DO NOT extract labels, callouts, or annotations shown near or inside diagrams, graphs, or tables (e.g., 'radicle', 'cork base', 'direction of movement', 'A', 'B', 'seed 1'); these belong to the visual image.
+
+{self.TEXT_FORMATTING_INSTRUCTIONS}
 
 {self.MATH_NOTATION_INSTRUCTIONS}
+
+{self.TABLE_FORMATTING_INSTRUCTIONS}
 
 {self.MARKS_INSTRUCTIONS}
 
@@ -367,11 +390,26 @@ CRITICAL RULES:
 
         elif category == PaperCategory.ESSAY_MS:
             schema = EssayAnswersContainer
+            scope_essay_ms = (
+                "the complete attached mark scheme document for a structured/essay theory paper."
+                if is_full_pdf
+                else f"this exact mark scheme page (Page {pno + 1} of {total_pages}) for a structured/essay theory paper."
+            )
+            task_essay_ms = (
+                "Extract all question solutions, marking points, and criteria across the entire mark scheme."
+                if is_full_pdf
+                else "Extract all question solutions, marking points, and criteria visible on THIS page."
+            )
+            rule1_essay_ms = (
+                "1. Extract ALL solutions in sequential order."
+                if is_full_pdf
+                else "1. Extract ONLY solutions visible on this page."
+            )
             prompt = f"""You are an expert Cambridge examination transcription agent.
-Examine the complete attached mark scheme document for a structured/essay theory paper.
+Examine {scope_essay_ms}
 
 TASK:
-Extract all question solutions, marking points, and criteria across the entire mark scheme.
+{task_essay_ms}
 For each question:
 - AnswerNumber: E.g., "{session}/{variant}/{year}/Q1", "{session}/{variant}/{year}/Q2".
 - Answer_text: General answer guidelines or main answer ONLY IF there is an overarching question solution without parts.
@@ -381,11 +419,15 @@ For each question:
   - part_answer: suggested answer text, formulas, or marking criteria.
 
 CRITICAL RULES:
-1. Extract ALL solutions in sequential order.
+{rule1_essay_ms}
 2. DO NOT include header/footer boilerplate.
 3. NEVER put gibberish or placeholder characters into "Answer_text" when answers belong to individual parts.
 
+{self.TEXT_FORMATTING_INSTRUCTIONS}
+
 {self.MATH_NOTATION_INSTRUCTIONS}
+
+{self.TABLE_FORMATTING_INSTRUCTIONS}
 
 {self.SANITY_CHECK_INSTRUCTIONS}
 """
@@ -393,6 +435,34 @@ CRITICAL RULES:
             raise ValueError(f"AgenticExtractor: unsupported category {category}")
 
         return schema, prompt
+
+    def _get_page_prompt(
+        self,
+        category: PaperCategory,
+        pno: int,
+        total_pages: int,
+        meta: dict[str, Any],
+    ) -> tuple[Any, str]:
+        """Returns the target Pydantic container schema and page extraction prompt."""
+        return self._build_extraction_prompt(
+            category=category,
+            meta=meta,
+            is_full_pdf=False,
+            pno=pno,
+            total_pages=total_pages,
+        )
+
+    def _get_full_pdf_prompt(
+        self,
+        category: PaperCategory,
+        meta: dict[str, Any],
+    ) -> tuple[Any, str]:
+        """Returns the target Pydantic container schema and prompt for full-PDF single-call Gemini extraction."""
+        return self._build_extraction_prompt(
+            category=category,
+            meta=meta,
+            is_full_pdf=True,
+        )
 
     # ── Full PDF Extraction (Gemini Primary) ──────────────────────────────
 
@@ -444,7 +514,7 @@ CRITICAL RULES:
             return f.read()
 
     @staticmethod
-    def _attempt_json_repair(raw: str) -> Optional[str]:
+    def _attempt_json_repair(raw: str) -> str | None:
         """Attempts basic repair of truncated JSON responses (e.g. unclosed quotes/brackets)."""
         if not raw:
             return None
@@ -491,8 +561,8 @@ CRITICAL RULES:
         self,
         pdf_path: Path,
         category: PaperCategory,
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """
         Extract complete PDF using Google Gemini in a single multimodal call,
         passing the full PDF bytes and receiving structured output for the entire paper.
@@ -616,7 +686,7 @@ CRITICAL RULES:
         pno: int,
         schema: Any,
         prompt: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Extract a single page using Gemini with native PDF bytes and retries."""
         # Slice single page into in-memory PDF
         sub_doc = fitz.open()
@@ -718,8 +788,8 @@ CRITICAL RULES:
         pno: int,
         total_pages: int,
         category: PaperCategory,
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Extract a single page with Gemini."""
         schema, prompt = self._get_page_prompt(category, pno, total_pages, meta)
         logger.info(f"Extracting page {pno + 1}/{total_pages} with Gemini ({self.model_name})...")
@@ -729,9 +799,9 @@ CRITICAL RULES:
 
     def _postprocess_essay_qp(
         self,
-        questions: List[Dict[str, Any]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        questions: list[dict[str, Any]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """
         Post-processes essay questions: normalizes QuestionNumber, cleans math and answer blanks,
         normalizes sub-part labels strictly to (i), (ii), (iii), rolls up marks, and guarantees marks >= 1.
@@ -740,8 +810,8 @@ CRITICAL RULES:
         for raw_q in questions:
             qn_raw = raw_q.get("QuestionNumber", "")
             qnum_str = self._fmt_qnum(qn_raw, meta)
-            stem = PyMuPDFExtractor.clean_math_text(
-                PyMuPDFExtractor._clean_answer_prompts(raw_q.get("Question_text", "") or "")
+            stem = clean_math_text(
+                clean_answer_prompts(raw_q.get("Question_text", "") or "")
             )
 
             q_obj = {
@@ -759,10 +829,10 @@ CRITICAL RULES:
                 "Parts": [],
             }
 
-            def _clean_node(node: Dict[str, Any], is_top: bool = False) -> int:
+            def _clean_node(node: dict[str, Any], is_top: bool = False) -> int:
                 text_key = "part_text" if is_top else "sub_part_text"
-                node[text_key] = PyMuPDFExtractor.clean_math_text(
-                    PyMuPDFExtractor._clean_answer_prompts(node.get(text_key, "") or "")
+                node[text_key] = clean_math_text(
+                    clean_answer_prompts(node.get(text_key, "") or "")
                 )
                 if not is_top:
                     lbl = node.get("sub_part_label", "")
@@ -818,9 +888,9 @@ CRITICAL RULES:
 
     def _postprocess_mcq_qp(
         self,
-        questions: List[Dict[str, Any]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        questions: list[dict[str, Any]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Post-process MCQ questions: normalizes QuestionNumber, cleans options and math."""
         results = []
         for i, raw_q in enumerate(questions, start=1):
@@ -829,7 +899,7 @@ CRITICAL RULES:
             opts = raw_q.get("Options", {})
             if isinstance(opts, dict):
                 cleaned_opts = {
-                    k: PyMuPDFExtractor.clean_math_text(str(opts.get(k, "")))
+                    k: clean_math_text(str(opts.get(k, "")))
                     for k in ["A", "B", "C", "D"]
                 }
             else:
@@ -837,7 +907,7 @@ CRITICAL RULES:
 
             results.append({
                 "QuestionNumber": qnum_str,
-                "Question_text": PyMuPDFExtractor.clean_math_text(
+                "Question_text": clean_math_text(
                     raw_q.get("Question_text", "") or ""
                 ),
                 "Unit": None,
@@ -855,9 +925,9 @@ CRITICAL RULES:
 
     def _postprocess_mcq_ms(
         self,
-        answers: List[Dict[str, Any]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        answers: list[dict[str, Any]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Post-process MCQ answers: normalizes AnswerNumber and letter key."""
         results = []
         for i, raw_a in enumerate(answers, start=1):
@@ -875,20 +945,20 @@ CRITICAL RULES:
 
     def _postprocess_essay_ms(
         self,
-        answers: List[Dict[str, Any]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        answers: list[dict[str, Any]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Post-process essay mark scheme answers."""
         results = []
         for i, raw_a in enumerate(answers, start=1):
             an_raw = raw_a.get("AnswerNumber", "")
             ans_str = self._fmt_qnum(an_raw if an_raw else i, meta)
-            ans_text = PyMuPDFExtractor.clean_math_text(raw_a.get("Answer_text", "") or "")
+            ans_text = clean_math_text(raw_a.get("Answer_text", "") or "")
             parts = []
             for p in raw_a.get("Parts", []):
                 parts.append({
                     "part_label": str(p.get("part_label", "")).strip(),
-                    "part_answer": PyMuPDFExtractor.clean_math_text(p.get("part_answer", "") or ""),
+                    "part_answer": clean_math_text(p.get("part_answer", "") or ""),
                     "image": p.get("image", None),
                 })
 
@@ -925,12 +995,12 @@ CRITICAL RULES:
 
     def _stitch_essay_qp(
         self,
-        pages_records: List[List[Dict[str, Any]]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        pages_records: list[list[dict[str, Any]]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Stitch essay questions and parts spanning across multiple pages."""
-        questions_map: Dict[int, Dict[str, Any]] = {}
-        order: List[int] = []
+        questions_map: dict[int, dict[str, Any]] = {}
+        order: list[int] = []
 
         for page_recs in pages_records:
             for raw_q in page_recs:
@@ -964,7 +1034,7 @@ CRITICAL RULES:
                     if not existing_q["Question_text"]:
                         existing_q["Question_text"] = new_stem
                     else:
-                        existing_q["Question_text"] = f"{existing_q['Question_text']} {new_stem}".strip()
+                        existing_q["Question_text"] = f"{existing_q['Question_text']}\n\n{new_stem}".strip()
 
                 # Merge parts
                 for p in raw_q.get("Parts", []):
@@ -985,7 +1055,7 @@ CRITICAL RULES:
                     else:
                         p_text = p.get("part_text", "") or ""
                         if p_text and p_text not in existing_part.get("part_text", ""):
-                            existing_part["part_text"] = f"{existing_part.get('part_text', '')} {p_text}".strip()
+                            existing_part["part_text"] = f"{existing_part.get('part_text', '')}\n\n{p_text}".strip()
                         for sp in p.get("sub_parts", []):
                             sp_lbl = str(sp.get("sub_part_label", "")).strip()
                             if not any(esp.get("sub_part_label") == sp_lbl for esp in existing_part["sub_parts"]):
@@ -996,12 +1066,12 @@ CRITICAL RULES:
 
     def _stitch_mcq_qp(
         self,
-        pages_records: List[List[Dict[str, Any]]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        pages_records: list[list[dict[str, Any]]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Stitch MCQ questions across pages."""
-        questions_map: Dict[int, Dict[str, Any]] = {}
-        order: List[int] = []
+        questions_map: dict[int, dict[str, Any]] = {}
+        order: list[int] = []
 
         for page_recs in pages_records:
             for raw_q in page_recs:
@@ -1019,11 +1089,11 @@ CRITICAL RULES:
 
     def _stitch_mcq_ms(
         self,
-        pages_records: List[List[Dict[str, Any]]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        pages_records: list[list[dict[str, Any]]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Stitch MCQ answers across pages."""
-        answers_map: Dict[int, Dict[str, Any]] = {}
+        answers_map: dict[int, dict[str, Any]] = {}
 
         for page_recs in pages_records:
             for raw_a in page_recs:
@@ -1039,12 +1109,12 @@ CRITICAL RULES:
 
     def _stitch_essay_ms(
         self,
-        pages_records: List[List[Dict[str, Any]]],
-        meta: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        pages_records: list[list[dict[str, Any]]],
+        meta: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Stitch essay mark scheme answers across pages."""
-        answers_map: Dict[int, Dict[str, Any]] = {}
-        order: List[int] = []
+        answers_map: dict[int, dict[str, Any]] = {}
+        order: list[int] = []
 
         for page_recs in pages_records:
             for raw_a in page_recs:
@@ -1063,8 +1133,22 @@ CRITICAL RULES:
                     }
 
                 existing = answers_map[qnum]
+                new_ans = raw_a.get("Answer_text", "") or ""
+                if new_ans and new_ans not in existing["Answer_text"]:
+                    if not existing["Answer_text"]:
+                        existing["Answer_text"] = new_ans
+                    else:
+                        existing["Answer_text"] = f"{existing['Answer_text']}\n\n{new_ans}".strip()
+
                 for p in raw_a.get("Parts", []):
-                    existing["Parts"].append(p)
+                    p_lbl = str(p.get("part_label", "")).strip()
+                    existing_p = next((ep for ep in existing["Parts"] if ep.get("part_label") == p_lbl), None)
+                    if existing_p is None:
+                        existing["Parts"].append(p)
+                    else:
+                        p_ans = p.get("part_answer", "") or ""
+                        if p_ans and p_ans not in existing_p.get("part_answer", ""):
+                            existing_p["part_answer"] = f"{existing_p.get('part_answer', '')}\n\n{p_ans}".strip()
 
         raw_list = [answers_map[qn] for qn in sorted(order)]
         return self._postprocess_essay_ms(raw_list, meta)
@@ -1075,8 +1159,8 @@ CRITICAL RULES:
         self,
         pdf_path: Path,
         category: PaperCategory,
-        meta_context: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        meta_context: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """
         Main entry point for agentic text extraction.
         Primary: Sends the complete PDF to Gemini in a single multimodal call.
@@ -1112,7 +1196,7 @@ CRITICAL RULES:
         logger.info(f"Starting Gemini page-by-page fallback extraction for {pdf_path.name} ({self.model_name})...")
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
-        pages_records: List[List[Dict[str, Any]]] = []
+        pages_records: list[list[dict[str, Any]]] = []
 
         for pno in range(total_pages):
             page = doc[pno]

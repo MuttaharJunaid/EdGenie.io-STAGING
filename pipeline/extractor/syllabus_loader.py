@@ -1,8 +1,10 @@
-import re
 import functools
-import pandas as pd
 import logging
+import re
 from pathlib import Path
+
+import pandas as pd
+
 from pipeline.extractor.schemas import SyllabusUnit
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,7 @@ class SyllabusLoader:
             raise FileNotFoundError(f"Syllabus file not found at {csv_path}")
 
         df = pd.read_csv(csv_path)
-        
+
         # Normalize headers to lowercase and strip whitespaces
         df.columns = [col.lower().strip() for col in df.columns]
 

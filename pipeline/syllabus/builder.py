@@ -16,7 +16,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from google import genai
 from google.genai import types
@@ -36,7 +35,7 @@ class SyllabusRow(BaseModel):
 
 
 class SyllabusContainer(BaseModel):
-    rows: List[SyllabusRow]
+    rows: list[SyllabusRow]
 
 
 # ── Builder ────────────────────────────────────────────────────────────────────
@@ -65,7 +64,7 @@ class SyllabusBuilder:
         subject: str,
         code: str,
         level: str,
-    ) -> List[SyllabusRow]:
+    ) -> list[SyllabusRow]:
         """
         Send the syllabus PDF to Gemini and return structured rows.
         Raises on API errors.
@@ -148,7 +147,7 @@ RULES:
 
     def save_csv(
         self,
-        rows: List[SyllabusRow],
+        rows: list[SyllabusRow],
         subject: str,
         code: str,
         output_dir: Path,
@@ -179,9 +178,9 @@ RULES:
         subject: str,
         code: str,
         level: str,
-        pdf_path: Optional[Path] = None,
-        output_dir: Optional[Path] = None,
-    ) -> Tuple[Path, Path, List[SyllabusRow]]:
+        pdf_path: Path | None = None,
+        output_dir: Path | None = None,
+    ) -> tuple[Path, Path, list[SyllabusRow]]:
         """
         Runs the full automated syllabus extraction pipeline:
         1. If pdf_path is None, automatically crawls Cambridge website to find

@@ -1,16 +1,16 @@
 import logging
-import json
 import re
-from pathlib import Path
-from urllib.parse import urlparse, parse_qs, urljoin
-from bs4 import BeautifulSoup
-import requests
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import parse_qs, urljoin, urlparse
+
+import requests
+from bs4 import BeautifulSoup
 
 from pipeline.config import settings
-from pipeline.scraper.models import ScrapeTarget, PaperFileInfo, ScrapeManifest, PaperDocumentType
-from pipeline.scraper.url_builder import URLBuilder
 from pipeline.scraper.downloader import PDFDownloader
+from pipeline.scraper.models import PaperDocumentType, PaperFileInfo, ScrapeManifest, ScrapeTarget
+from pipeline.scraper.url_builder import URLBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,6 @@ class PapaCambridgeScraper:
             return []
 
         logger.info("Using Playwright fallback to scrape JS-rendered content...")
-        pdf_urls = set()
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -87,11 +86,11 @@ class PapaCambridgeScraper:
                 page.goto(url, timeout=settings.scraper_timeout * 1000)
                 # Wait for any relevant dynamic elements to load
                 page.wait_for_timeout(3000)
-                
+
                 # Get the fully rendered content
                 content = page.content()
                 browser.close()
-                
+
                 return self._extract_pdf_urls_static(content)
         except Exception as e:
             logger.error(f"Playwright rendering failed: {e}")
@@ -103,7 +102,7 @@ class PapaCambridgeScraper:
         e.g., 7707_s23_qp_12.pdf -> PaperFileInfo
         """
         match = self.FILENAME_PATTERN.match(filename)
-        
+
         doc_type = PaperDocumentType.OTHER
         paper_num = None
         variant = None
@@ -170,7 +169,7 @@ class PapaCambridgeScraper:
             numbers = re.findall(r"\d+", filename)
             if len(numbers) >= 1:
                 subject_code = numbers[0]
-            
+
             if len(numbers) >= 2:
                 # E.g. [7707, 23] -> year is 2023
                 try:
@@ -274,7 +273,7 @@ class PapaCambridgeScraper:
                 _, size_bytes, sha256_hash = self.downloader.download(url, dest_path, force=force)
                 file_info.size_bytes = size_bytes
                 file_info.sha256 = sha256_hash
-                
+
                 downloaded_paths.append(dest_path)
                 manifest_files.append(file_info)
             except Exception as e:
@@ -288,7 +287,7 @@ class PapaCambridgeScraper:
                 target=self.target,
                 files=manifest_files
             )
-            
+
             # Serialize with datetime handling and pydantic V2 dump
             if not dry_run:
                 try:

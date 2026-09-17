@@ -19,12 +19,11 @@ Flow
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple
 from urllib.parse import urljoin
 
 import fitz  # PyMuPDF
-from playwright.sync_api import sync_playwright
 import requests
+from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ LEVEL_SUBJECT_URLS = {
 class CambridgeSyllabusCrawler:
     """Automates finding and downloading the latest full Cambridge syllabus PDF."""
 
-    def __init__(self, download_dir: Optional[Path] = None, timeout: int = 45):
+    def __init__(self, download_dir: Path | None = None, timeout: int = 45):
         self.download_dir = download_dir or (Path(__file__).resolve().parent.parent.parent / "pipeline" / "storage" / "syllabi_pdfs")
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.timeout = timeout
@@ -61,7 +60,7 @@ class CambridgeSyllabusCrawler:
         clean = level.lower().strip().replace(" ", "-")
         return LEVEL_SUBJECT_URLS.get(clean, LEVEL_SUBJECT_URLS["o-level"])
 
-    def fetch_syllabus_pdf(self, subject: str, code: str, level: str) -> Tuple[Path, int]:
+    def fetch_syllabus_pdf(self, subject: str, code: str, level: str) -> tuple[Path, int]:
         """
         Navigates Cambridge website, finds subject syllabus PDF with > 3 pages,
         downloads it locally, and returns (local_pdf_path, page_count).

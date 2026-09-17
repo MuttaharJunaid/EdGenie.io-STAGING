@@ -11,7 +11,7 @@ Enforces Cambridge exam hierarchy rules:
 
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class MarkHierarchyValidator:
         cls,
         text: str,
         current_mark: int,
-    ) -> Tuple[str, int]:
+    ) -> tuple[str, int]:
         """
         If text contains trailing bracketed mark like [2], extract 2 into mark
         and strip [2] / [Total: N] from the text.
@@ -70,8 +70,8 @@ class MarkHierarchyValidator:
     @classmethod
     def reconcile_question_marks(
         cls,
-        q_record: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], List[str]]:
+        q_record: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[str]]:
         """
         Reconciles marks for a single question record:
         - Reconciles sub-parts -> part marks
@@ -79,7 +79,7 @@ class MarkHierarchyValidator:
         - Cleans mark brackets from text
         Returns the updated record and a list of audit messages.
         """
-        audit_logs: List[str] = []
+        audit_logs: list[str] = []
         q_num = q_record.get("QuestionNumber", "Unknown")
 
         # Strip any [Total: N] from Question_text
@@ -198,13 +198,13 @@ class MarkHierarchyValidator:
     @classmethod
     def reconcile_and_validate_records(
         cls,
-        records: List[Dict[str, Any]],
-    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        records: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Reconciles and validates mark consistency across all extracted records in a paper.
         Returns the updated records list and a stats dictionary.
         """
-        all_audit_logs: List[str] = []
+        all_audit_logs: list[str] = []
         total_paper_marks = 0
         questions_count = len(records)
         discrepancies_count = 0

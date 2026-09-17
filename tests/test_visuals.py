@@ -4,13 +4,12 @@ Run from project root:  .venv/bin/pytest tests/test_visuals.py -v
 """
 import json
 from pathlib import Path
-from typing import Any, Dict, List
 
 import pymupdf as fitz
 import pytest
 
-from pipeline.visuals.extractor import CambridgeVisualExtractor, Line, DEFAULT_CAPTION_PATTERN
 from pipeline.visuals.cli import _patch_question_json
+from pipeline.visuals.extractor import CambridgeVisualExtractor, Line
 
 
 class TestCambridgeVisualExtractorComponents:
@@ -232,7 +231,7 @@ class TestJsonPatching:
 
         _patch_question_json(json_file, manifest)
 
-        with open(json_file, "r", encoding="utf-8") as f:
+        with open(json_file, encoding="utf-8") as f:
             updated = json.load(f)
 
         assert updated[0]["image"] == [
@@ -276,7 +275,7 @@ class TestJsonPatching:
 
         _patch_question_json(json_file, manifest)
 
-        with open(json_file, "r", encoding="utf-8") as f:
+        with open(json_file, encoding="utf-8") as f:
             updated = json.load(f)
 
         q10 = updated[0]
@@ -543,9 +542,222 @@ class TestTableVisualExtraction:
         assert p11["filename"] == "p11_q4_part_e_diagram_1.png"
         assert (output_dir / "p11_q4_part_e_diagram_1.png").exists()
 
+    def test_5090_w11_qp_62_side_by_side_micrographs_and_copyright_guard(self, tmp_path):
+        """Regression test: 5090_w11_qp_62 Page 6 Fig 2.1 & 2.2 side-by-side micrographs must not overlap, and Page 8 copyright must be excluded."""
+        pdf_path = Path("pipeline/storage/5090/2011/nov/5090_w11_qp_62.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_w11_qp_62.pdf not found in storage.")
 
+        output_dir = tmp_path / "w11_62_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
 
+        # 1. Page 6 check: Fig 2.1 and Fig 2.2 must both be extracted independently
+        p6_entries = [m for m in manifest if m.get("page") == 6]
+        assert len(p6_entries) == 2, f"Expected 2 visuals on page 6, found: {p6_entries}"
+        
+        f21 = next((m for m in p6_entries if "Fig_2_1" in m["filename"]), None)
+        f22 = next((m for m in p6_entries if "Fig_2_2" in m["filename"]), None)
+        assert f21 is not None, "Fig 2.1 not found in page 6 manifest"
+        assert f22 is not None, "Fig 2.2 not found in page 6 manifest"
 
+        # Fig 2.1 must capture full width of the plant cell micrograph (>200pt)
+        assert f21["bbox"][2] - f21["bbox"][0] > 200.0, f"Fig 2.1 crop too narrow: {f21['bbox']}"
+        # Fig 2.2 must capture full width of the blood cell micrograph (>200pt)
+        assert f22["bbox"][2] - f22["bbox"][0] > 200.0, f"Fig 2.2 crop too narrow: {f22['bbox']}"
 
+        # Clean horizontal separation: Fig 2.1 x1 must be strictly left of Fig 2.2 x0
+        assert f21["bbox"][2] <= f22["bbox"][0] + 5.0, f"Fig 2.1 ({f21['bbox']}) bleeds into Fig 2.2 ({f22['bbox']})"
 
+        # 2. Page 8 check: Copyright Acknowledgements citation must NOT be extracted as a figure
+        p8_figs = [m for m in manifest if m.get("page") == 8 and m.get("target_type") != "table" and "Fig" in m.get("filename", "")]
+        assert len(p8_figs) == 0, f"Copyright text falsely extracted as figure on page 8: {p8_figs}"
 
+    def test_5090_w25_qp_22_fig_2_1_unbroken(self, tmp_path):
+        """Regression test: 5090_w25_qp_22 Page 3 Fig 2.1 must be extracted as a single complete diagram, not split into half."""
+        pdf_path = Path("pipeline/storage/5090/2025/nov/5090_w25_qp_22.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_w25_qp_22.pdf not found in storage.")
+
+        output_dir = tmp_path / "w25_22_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # Page 3 check: Only Fig 2.1 must be extracted, with no orphaned diagrams
+        p3_entries = [m for m in manifest if m.get("page") == 3]
+        assert len(p3_entries) == 1, f"Expected exactly 1 visual on page 3, found {len(p3_entries)}: {p3_entries}"
+        
+        f21 = p3_entries[0]
+        assert "Fig_2_1" in f21["filename"], f"Expected Fig_2_1 on page 3, got: {f21['filename']}"
+        assert (output_dir / f21["filename"]).exists()
+
+        # Must span full diagram bounds:
+        # x0 <= 65.0 (includes '250cm³from metabolism' at x0=63.9)
+        # x1 >= 530.0 (includes right side at x1=535)
+        # y0 <= 135.0 (includes upper cylinder headers at y=130)
+        # y1 >= 340.0 (includes caption at y=347)
+        bbox = f21["bbox"]
+        assert bbox[0] <= 65.0, f"Left edge trimmed: {bbox[0]} > 65.0"
+        assert bbox[2] >= 530.0, f"Right edge trimmed: {bbox[2]} < 530.0"
+        assert bbox[1] <= 135.0, f"Top edge trimmed: {bbox[1]} > 135.0"
+        assert bbox[3] >= 340.0, f"Bottom edge trimmed: {bbox[3]} < 340.0"
+        assert bbox[2] - bbox[0] > 450.0, f"Width too small (split diagram): {bbox[2] - bbox[0]}"
+
+    def test_5090_w25_qp_11_mcq_no_overwrites_all_visuals_preserved(self, tmp_path):
+        """Regression test: 5090_w25_qp_11 MCQ extraction must preserve all diagrams and tables without overwriting."""
+        pdf_path = Path("pipeline/storage/5090/2025/nov/5090_w25_qp_11.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_w25_qp_11.pdf not found in storage.")
+
+        output_dir = tmp_path / "w25_11_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir)
+
+        # 1. Total visual count: 22 distinct visuals
+        assert len(manifest) == 22, f"Expected 22 visuals, got {len(manifest)}"
+
+        # 2. Strict filename uniqueness: no two visuals may share a filename
+        filenames = [m["filename"] for m in manifest]
+        assert len(filenames) == len(set(filenames)), "Duplicate filenames detected in manifest!"
+        for fn in filenames:
+            assert (output_dir / fn).exists(), f"File {fn} missing from disk!"
+
+        # 3. Questions with multiple visuals must preserve all visuals
+        multi_q = {9: 2, 10: 2, 11: 2, 16: 2, 26: 2}
+        for q, expected_cnt in multi_q.items():
+            q_entries = [m for m in manifest if m.get("question") == q]
+            assert len(q_entries) == expected_cnt, f"Q{q} expected {expected_cnt} visuals, found {len(q_entries)}"
+
+        # 4. Q8 2x2 option diagrams must be captured in one complete unified image
+        q8_entries = [m for m in manifest if m.get("question") == 8]
+        assert len(q8_entries) == 1, f"Q8 expected 1 combined visual, found {len(q8_entries)}"
+        q8_bbox = q8_entries[0]["bbox"]
+        assert q8_bbox[2] - q8_bbox[0] > 400.0, f"Q8 width too small: {q8_bbox}"
+        assert q8_bbox[3] - q8_bbox[1] > 350.0, f"Q8 height too small (options split): {q8_bbox}"
+
+        # 5. Q26 table must not bleed into footer
+        q26_t = next(m for m in manifest if m.get("question") == 26 and "mcq_2" in m["filename"])
+        assert q26_t["bbox"][3] <= 780.0, f"Q26 table bleeds into footer: {q26_t['bbox']}"
+
+    def test_5090_w25_qp_42_fig_1_1_complete(self, tmp_path):
+        """Regression test: 5090_w25_qp_42 Page 3 Fig 1.1 must capture beakers, full descriptions, and caption with no duplicate diagram."""
+        pdf_path = Path("pipeline/storage/5090/2025/nov/5090_w25_qp_42.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_w25_qp_42.pdf not found in storage.")
+
+        output_dir = tmp_path / "w25_42_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # Page 3 must have exactly 1 visual (Fig 1.1), zero orphaned diagram_1
+        p3_entries = [m for m in manifest if m.get("page") == 3]
+        assert len(p3_entries) == 1, f"Expected exactly 1 visual on page 3, found {len(p3_entries)}: {p3_entries}"
+
+        f11 = p3_entries[0]
+        assert "Fig_1_1" in f11["filename"], f"Expected Fig_1_1, got: {f11['filename']}"
+        assert (output_dir / f11["filename"]).exists()
+
+        bbox = f11["bbox"]
+        assert bbox[1] <= 195.0, f"Top cut off: {bbox[1]} > 195.0"
+        assert bbox[3] >= 430.0, f"Caption cut off: {bbox[3]} < 430.0"
+        assert bbox[2] - bbox[0] > 450.0, f"Width too narrow: {bbox[2] - bbox[0]}"
+        assert bbox[3] - bbox[1] > 230.0, f"Height too short: {bbox[3] - bbox[1]}"
+
+    def test_5090_s25_qp_42_part_carryover_and_subpart_naming(self, tmp_path):
+        """Regression test: 5090_s25_qp_42 Page 3 diagram must be attributed to sub_part_a(ii), not question."""
+        pdf_path = Path("pipeline/storage/5090/2025/jun/5090_s25_qp_42.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_s25_qp_42.pdf not found in storage.")
+
+        output_dir = tmp_path / "s25_42_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # 1. Page 3 ranking arrow must be attributed to subpart a(ii)
+        p3_entries = [m for m in manifest if m.get("page") == 3]
+        assert len(p3_entries) == 1, f"Expected 1 visual on page 3, found: {p3_entries}"
+        p3_diag = p3_entries[0]
+        assert p3_diag["target_type"] == "sub_part"
+        assert p3_diag["target_label"] == "a(ii)"
+        assert p3_diag["part"] == "a(ii)"
+        assert p3_diag["filename"] == "p3_q1_sub_part_a(ii)_diagram_1.png"
+        assert (output_dir / p3_diag["filename"]).exists()
+
+        # 2. Page 5 graph grid must be attributed to subpart c(i)
+        p5_entries = [m for m in manifest if m.get("page") == 5]
+        assert len(p5_entries) == 1, f"Expected 1 visual on page 5, found: {p5_entries}"
+        p5_diag = p5_entries[0]
+        assert p5_diag["target_type"] == "sub_part"
+        assert p5_diag["target_label"] == "c(i)"
+        assert p5_diag["part"] == "c(i)"
+        assert p5_diag["filename"] == "p5_q1_sub_part_c(i)_diagram_2.png"
+        assert (output_dir / p5_diag["filename"]).exists()
+
+        # 3. Verify Page 2 Fig 1.1 and Page 4 Table 1.1 preserved
+        p2_entries = [m for m in manifest if m.get("page") == 2]
+        assert len(p2_entries) == 1
+        assert p2_entries[0]["filename"] == "p2_q1_part_a_Fig_1_1.png"
+
+        p4_entries = [m for m in manifest if m.get("page") == 4]
+        assert len(p4_entries) == 1
+        assert p4_entries[0]["filename"] == "p4_q1_part_c_Table_1_1.png"
+
+    def test_5090_w25_qp_22_matching_table_unified(self, tmp_path):
+        """
+        Regression test: 5090_w25_qp_22 Q1(a) matching exercise (gland/hormone/target organ)
+        must be extracted as a single unified image, not as 3 separate per-column crops.
+
+        The matching layout on page 2 consists of 12 bordered boxes in 3 columns x 4 rows
+        with connecting lines between them. After the _merge_matching_columns pass the three
+        column clusters must be merged into one bounding rect spanning all three columns.
+        """
+        pdf_path = Path("pipeline/storage/5090/2025/nov/5090_w25_qp_22.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_w25_qp_22.pdf not found in storage.")
+
+        output_dir = tmp_path / "w25_22_matching_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # 1. Page 2 must contain exactly 1 visual (the unified matching exercise)
+        p2_entries = [m for m in manifest if m.get("page") == 2]
+        assert len(p2_entries) == 1, (
+            f"Expected exactly 1 visual on page 2 (unified matching exercise), "
+            f"found {len(p2_entries)}: {p2_entries}"
+        )
+
+        matching_entry = p2_entries[0]
+
+        # 2. The image file must exist on disk
+        assert (output_dir / matching_entry["filename"]).exists(), (
+            f"Matching exercise image not saved: {matching_entry['filename']}"
+        )
+
+        # 3. Bounding box must span all 3 columns:
+        #    - x0 <= 75  (left edge of column 1, x0=71.9)
+        #    - x1 >= 520 (right edge of column 3, x1=523.4)
+        #    - width >= 400 pt  (must cover all three columns, not just one)
+        bbox = matching_entry["bbox"]
+        assert bbox[0] <= 75.0, (
+            f"Left edge too far right -- only captured rightmost column(s): x0={bbox[0]}")
+        assert bbox[2] >= 520.0, (
+            f"Right edge too far left -- only captured leftmost column(s): x1={bbox[2]}")
+        assert bbox[2] - bbox[0] >= 400.0, (
+            f"Width too small -- columns not merged: width={bbox[2] - bbox[0]:.1f} pt")
+
+        # 4. Height must cover the full row span of the boxes (y0~217 to y1~446)
+        assert bbox[3] - bbox[1] >= 200.0, (
+            f"Height too small -- rows not fully captured: height={bbox[3] - bbox[1]:.1f} pt")
+
+        # 5. Column-header text ("gland", "hormone", "target organ") sits at y~183.
+        #    The boxes start at y~217. The crop top must NOT rise above y=210 to
+        #    avoid absorbing the header text prose into the image.
+        assert bbox[1] >= 210.0, (
+            f"Top edge too high -- header text may be included: y0={bbox[1]:.1f} (expected >= 210)")
+
+        # 6. Cross-check: existing Fig 2.1 test -- page 3 must still have exactly 1 visual
+        p3_entries = [m for m in manifest if m.get("page") == 3]
+        assert len(p3_entries) == 1, (
+            f"Fig 2.1 regression: expected 1 visual on page 3, found {len(p3_entries)}: {p3_entries}")
+        assert "Fig_2_1" in p3_entries[0]["filename"], (
+            f"Fig 2.1 regression: expected Fig_2_1 on page 3, got {p3_entries[0]['filename']}")

@@ -21,9 +21,10 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import dotenv
+
 dotenv.load_dotenv()
 
 from google import genai
@@ -33,6 +34,7 @@ from pydantic import BaseModel
 
 from pipeline.config import settings
 from pipeline.extractor.paper_type_detector import PaperCategory
+
 
 class QuotaExceededError(Exception):
     """Raised when LLM API resource/quota limits are exhausted (HTTP 429 / RESOURCE_EXHAUSTED)."""
@@ -49,14 +51,14 @@ class SingleClassification(BaseModel):
     Unit: str
     Topic: str
     Topic_name: str
-    Sub_topic: List[str]
+    Sub_topic: list[str]
     Difficulty_score: int
     Difficulty_label: str
-    Command_words: List[str]
+    Command_words: list[str]
 
 
 class ClassificationContainer(BaseModel):
-    classifications: List[SingleClassification]
+    classifications: list[SingleClassification]
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────────
@@ -68,7 +70,7 @@ class ClassifierAgent:
     topic classification, difficulty level, and command words for every question.
     """
 
-    def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
+    def __init__(self, provider: str | None = None, model_name: str | None = None):
         self.provider = provider or getattr(settings, "classification_provider", "openrouter")
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -79,10 +81,10 @@ class ClassifierAgent:
 
     def _build_prompt(
         self,
-        records: List[Dict[str, Any]],
+        records: list[dict[str, Any]],
         syllabus_text: str,
         category: PaperCategory,
-        meta_context: Dict[str, Any],
+        meta_context: dict[str, Any],
     ) -> str:
         session = str(meta_context.get("session", "jun")).capitalize()
         year = meta_context.get("year", 2023)
@@ -136,11 +138,11 @@ PRE-EXTRACTED QUESTION JSON:
 
     def classify(
         self,
-        records: List[Dict[str, Any]],
+        records: list[dict[str, Any]],
         syllabus_text: str,
         category: PaperCategory,
-        meta_context: Dict[str, Any],
-    ) -> Dict[str, Dict[str, Any]]:
+        meta_context: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
         """
         Send extracted records + syllabus to OpenRouter (1st choice, with Gemini fallback) for classification.
         Returns a dict: {question_number: {Unit, Topic, Topic_name, Sub_topic,
@@ -179,7 +181,7 @@ PRE-EXTRACTED QUESTION JSON:
         else:
             raise RuntimeError("No valid API key (OPENROUTER_API_KEY or GOOGLE_API_KEY) found for classification pass.")
 
-    def _classify_with_gemini(self, prompt: str) -> Dict[str, Dict[str, Any]]:
+    def _classify_with_gemini(self, prompt: str) -> dict[str, dict[str, Any]]:
         """Calls Gemini with structured output for question classification with 429 exponential backoff."""
         client = genai.Client(api_key=self.google_api_key)
         model = os.getenv("GEMINI_MODEL") or getattr(settings, "gemini_classification_model", "gemini-2.5-flash")
@@ -235,7 +237,7 @@ PRE-EXTRACTED QUESTION JSON:
             raise last_err
         return {}
 
-    def _classify_with_openrouter(self, prompt: str) -> Dict[str, Dict[str, Any]]:
+    def _classify_with_openrouter(self, prompt: str) -> dict[str, dict[str, Any]]:
         """Calls OpenRouter (1st choice) with exact same prompt and schema."""
         logger.info("Calling OpenRouter for question classification...")
         api_key = self.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
@@ -278,9 +280,9 @@ PRE-EXTRACTED QUESTION JSON:
 
     def merge(
         self,
-        records: List[Dict[str, Any]],
-        classifications: Dict[str, Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        records: list[dict[str, Any]],
+        classifications: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """
         Merge classification results back into the schema skeleton records.
         Missing keys are left as-is (empty/zero).

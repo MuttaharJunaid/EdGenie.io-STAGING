@@ -22,11 +22,11 @@ KEY IMPROVEMENTS:
 import io
 import json
 import logging
-import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import pymupdf as fitz
 from PIL import Image
@@ -46,7 +46,7 @@ DIAGRAM_CAPTION_PATTERN = re.compile(
 LEFT_MARGIN_X = 60.0       # question numbers sit left of this
 HEADER_Y = 40.0            # page-number-in-header sits above this; ignore it
 MAX_LINE_HEIGHT = 45.0     # guard against rotated page-tall margin text (e.g. 'DO NOT WRITE IN THIS MARGIN')
-PROSE_MIN_WIDTH = 120.0    # a "real sentence" line is at least this wide
+PROSE_MIN_WIDTH = 250.0    # a "real sentence" line is at least this wide (full-width column is ~500pt)
 PROSE_MAX_X0 = 135.0       # allow indented question sub-part lines (which sit around x0 ≈ 115-125 pt)
 PROSE_CHAIN_GAP = 20.0     # max vertical gap between lines of one paragraph
 CONTENT_MAX_X = 522.0      # "For Examiner's Use" sidebar starts right of this
@@ -91,7 +91,7 @@ FALLBACK_MIN_CLUSTER_AREA = 3000.0  # Min cluster area for uncaptioned fallback 
 FALLBACK_MIN_CLUSTER_DIM = 20.0     # Min dimension for uncaptioned fallback diagrams
 
 # Units of measurement and graph scale abbreviations that should never be parsed as question numbers
-UNIT_TOKENS: Set[str] = {
+UNIT_TOKENS: set[str] = {
     "cm", "mm", "m", "km", "nm", "μm",
     "metre", "metres", "meter", "meters",
     "g", "kg", "mg",
@@ -207,8 +207,8 @@ def rects_touch(
     a: fitz.Rect,
     b: fitz.Rect,
     pad: float = 0.0,
-    pad_x: Optional[float] = None,
-    pad_y: Optional[float] = None,
+    pad_x: float | None = None,
+    pad_y: float | None = None,
 ) -> bool:
     """Padded overlap test computed manually without PyMuPDF zero-area dropping."""
     px = pad_x if pad_x is not None else pad
@@ -242,7 +242,7 @@ class CambridgeVisualExtractor:
         min_stroke_len: float = MIN_STROKE_LEN,
         gap_break: float = GAP_BREAK,
         stitch_gap_px: int = STITCH_GAP_PX,
-        caption_pattern: Optional[re.Pattern] = None,
+        caption_pattern: re.Pattern | None = None,
     ):
         self.dpi = dpi
         self.min_vector_area = min_vector_area
@@ -273,12 +273,12 @@ class CambridgeVisualExtractor:
         total = w * h
         if total == 0:
             return True
-        pixels = img.getdata()
-        white_count = sum(1 for r, g, b in pixels if r >= 245 and g >= 245 and b >= 245)
+        pixels_iter = img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata()
+        white_count = sum(1 for r, g, b in pixels_iter if r >= 245 and g >= 245 and b >= 245)
         return (white_count / total) >= white_threshold
 
     @staticmethod
-    def _build_raster_xref_map(page: fitz.Page) -> Dict[Tuple[float, float, float, float], int]:
+    def _build_raster_xref_map(page: fitz.Page) -> dict[tuple[float, float, float, float], int]:
         """
         Build a bbox-tuple -> xref mapping for all embedded raster images on
         the page. PyMuPDF returns image placement info in the same order as
@@ -288,7 +288,7 @@ class CambridgeVisualExtractor:
         page composites them on top of white), which is what we need for
         reliable watermark detection.
         """
-        xref_map: Dict[Tuple[float, float, float, float], int] = {}
+        xref_map: dict[tuple[float, float, float, float], int] = {}
         for img_info in page.get_image_info(xrefs=True):
             xref = img_info.get("xref", 0)
             if xref:
@@ -324,9 +324,9 @@ class CambridgeVisualExtractor:
         return (dark_count / total) >= dark_threshold
 
 
-    def get_lines(self, page: fitz.Page) -> List[Line]:
+    def get_lines(self, page: fitz.Page) -> list[Line]:
         """Extract text lines with bold detection, skipping sidebars and clustering into visual rows."""
-        lines: List[Line] = []
+        lines: list[Line] = []
         d = page.get_text("dict")
         for block in d.get("blocks", []):
             if block.get("type") != 0:
@@ -360,10 +360,10 @@ class CambridgeVisualExtractor:
                     continue  # Rotated page-tall margin text or watermark run
                 bold = any("Bold" in s.get("font", "") for s in line.get("spans", []))
                 lines.append(Line(text=text, bbox=bbox, bold=bold, width=bbox.width))
-        
+
         # Cluster lines into visual rows (chaining y0 gap <= 2.0pt) before sorting by x0
         lines.sort(key=lambda l: l.bbox.y0)
-        rows: List[List[Line]] = []
+        rows: list[list[Line]] = []
         for ln in lines:
             if not rows:
                 rows.append([ln])
@@ -375,15 +375,15 @@ class CambridgeVisualExtractor:
                 else:
                     rows.append([ln])
 
-        clustered_lines: List[Line] = []
+        clustered_lines: list[Line] = []
         for r in rows:
             r.sort(key=lambda l: l.bbox.x0)
             clustered_lines.extend(r)
         return clustered_lines
 
-    def get_question_anchors(self, lines: List[Line], min_question: int = 1) -> List[Tuple[int, float]]:
+    def get_question_anchors(self, lines: list[Line], min_question: int = 1) -> list[tuple[int, float]]:
         """[(question_number, y0), ...] using left-margin layout geometry."""
-        anchors: List[Tuple[int, float]] = []
+        anchors: list[tuple[int, float]] = []
         for ln in lines:
             # Cambridge question numbers sit in the margin gutter (~38 to 60 pt)
             if ln.bbox.x0 < 38.0 or ln.bbox.x0 >= self.left_margin_x or ln.bbox.y0 <= self.header_y or ln.bbox.y0 >= 780:
@@ -419,10 +419,19 @@ class CambridgeVisualExtractor:
         anchors.sort(key=lambda a: a[1])
         return anchors
 
-    def get_captions(self, lines: List[Line]) -> List[Dict[str, Any]]:
+    def get_captions(self, lines: list[Line]) -> list[dict[str, Any]]:
         """Find caption lines matching 'Fig. N.M' or 'Table N.M' with optional parenthesized note."""
-        caps: List[Dict[str, Any]] = []
+        # Find copyright / acknowledgements boundary on the page to prevent matching citations
+        copyright_y: float = float("inf")
         for ln in lines:
+            t = ln.text.strip()
+            if re.search(r"\b(?:Copyright\s+Acknowledgements|Permission\s+to\s+reproduce)\b", t, re.IGNORECASE):
+                copyright_y = min(copyright_y, ln.bbox.y0)
+
+        caps: list[dict[str, Any]] = []
+        for ln in lines:
+            if ln.bbox.y0 >= copyright_y - 2.0:
+                continue
             m = self.caption_pattern.match(ln.text.strip())
             if m:
                 tag = m.group(1).lower()
@@ -439,12 +448,12 @@ class CambridgeVisualExtractor:
 
     def cluster_rects(
         self,
-        rects: List[fitz.Rect],
+        rects: list[fitz.Rect],
         pad: float = 8.0,
-        pad_x: Optional[float] = None,
-        pad_y: Optional[float] = None,
+        pad_x: float | None = None,
+        pad_y: float | None = None,
         max_iter: int = 12,
-    ) -> List[fitz.Rect]:
+    ) -> list[fitz.Rect]:
         """Merge nearby bounding boxes into clusters using safe union."""
         out_rects = [fitz.Rect(r) for r in rects]
         changed = True
@@ -452,7 +461,7 @@ class CambridgeVisualExtractor:
         while changed and it < max_iter:
             changed = False
             it += 1
-            merged: List[fitz.Rect] = []
+            merged: list[fitz.Rect] = []
             used = [False] * len(out_rects)
             for i, r in enumerate(out_rects):
                 if used[i]:
@@ -471,13 +480,160 @@ class CambridgeVisualExtractor:
             out_rects = merged
         return out_rects
 
-    def find_upper_bound(self, caption: Dict[str, Any], lines: List[Line], page_top: float = 40.0) -> float:
+    def _merge_matching_columns(
+        self,
+        clusters: list[fitz.Rect],
+        raw_vectors: list[fitz.Rect],
+    ) -> list[fitz.Rect]:
+        """
+        Detect and merge multi-column matching-exercise layouts into a single bounding rect.
+
+        Cambridge matching exercises ("Draw lines to link...") present items as a regular grid
+        of uniformly-sized bordered boxes in 2-4 columns x 2+ rows, with connecting lines
+        between columns.  Each individual box is a separate PyMuPDF drawing, and because
+        columns are 50-250 pt apart horizontally the standard cluster_rects pass (pad_x=55)
+        does not merge them -- yielding one separate crop per box or per partial row.
+
+        This pass:
+        1. Detects a "uniform-box grid" pattern in raw_vectors: a set of rects that all share
+           the same width (±10%) and height (±15%), arranged in at least 2 distinct x-columns
+           and at least 2 rows, with regular row spacing.
+        2. Computes the bounding union of all matching-grid rects plus the connecting-line
+           paths that lie between the column bounding boxes.
+        3. Replaces every cluster that overlaps this unified region with a single merged rect.
+        4. Suppresses pure text-label clusters (short_labels) that sit immediately above the
+           merged region (column headers like "gland", "hormone", "target organ").
+        """
+        if not raw_vectors or len(clusters) < 2:
+            return clusters
+
+        # ── Step 1: find candidate uniform boxes ──────────────────────────────
+        # Only consider rects with 2-D area (both width and height substantial)
+        cand = [v for v in raw_vectors if v.width >= 20.0 and v.height >= 10.0]
+        if len(cand) < 4:
+            return clusters
+
+        # Group by (width, height) rounded to nearest 2 pt to find dominant uniform size
+        size_counter: Counter = Counter()
+        for v in cand:
+            size_counter[(round(v.width / 2) * 2, round(v.height / 2) * 2)] += 1
+
+        # Find most frequent size with at least 4 occurrences (≥2 cols × ≥2 rows)
+        best_size, best_count = size_counter.most_common(1)[0]
+        if best_count < 4:
+            return clusters
+
+        bw, bh = best_size
+        # Tolerance: ±12% width, ±20% height (taller boxes like FSH cell need more slack)
+        grid_boxes = [
+            v for v in cand
+            if abs(v.width - bw) <= bw * 0.12 and abs(v.height - bh) <= bh * 0.20
+        ]
+        if len(grid_boxes) < 4:
+            return clusters
+
+        # ── Step 2: verify multi-column layout ────────────────────────────────
+        # Extract distinct x-column centers (cluster x-midpoints within 20 pt)
+        x_mids = sorted(set(round((v.x0 + v.x1) / 2 / 10) * 10 for v in grid_boxes))
+        x_cols: list[float] = []
+        for xm in x_mids:
+            if not x_cols or xm - x_cols[-1] > 20:
+                x_cols.append(xm)
+        if len(x_cols) < 2:
+            return clusters  # single-column, not a matching exercise
+
+        # Extract distinct y-row tops (cluster y0 within 5 pt)
+        y_tops = sorted(set(round(v.y0 / 5) * 5 for v in grid_boxes))
+        y_rows: list[float] = []
+        for yt in y_tops:
+            if not y_rows or yt - y_rows[-1] > 5:
+                y_rows.append(yt)
+        if len(y_rows) < 2:
+            return clusters  # single row, not a multi-row matching exercise
+
+        # ── Step 3: compute unified bounding rect of all grid boxes ───────────
+        grid_x0 = min(v.x0 for v in grid_boxes)
+        grid_y0 = min(v.y0 for v in grid_boxes)
+        grid_x1 = max(v.x1 for v in grid_boxes)
+        grid_y1 = max(v.y1 for v in grid_boxes)
+        merged_bbox = fitz.Rect(grid_x0, grid_y0, grid_x1, grid_y1)
+
+        # Also absorb any connecting-line paths that sit strictly between column edges
+        for v in raw_vectors:
+            if v in grid_boxes:
+                continue
+            # Must lie horizontally within the grid span (not outside left/right columns)
+            if v.x0 >= grid_x0 - 5 and v.x1 <= grid_x1 + 5:
+                # Must lie vertically within the grid span
+                if v.y0 >= grid_y0 - 5 and v.y1 <= grid_y1 + 5:
+                    merged_bbox = rect_union(merged_bbox, v)
+
+        # ── Step 4: replace all overlapping clusters with merged_bbox ─────────
+        # A cluster "belongs" to the matching group if it overlaps meaningfully with merged_bbox
+        def _overlaps_grid(c: fitz.Rect) -> bool:
+            overlap_x = max(0.0, min(c.x1, merged_bbox.x1) - max(c.x0, merged_bbox.x0))
+            overlap_y = max(0.0, min(c.y1, merged_bbox.y1) - max(c.y0, merged_bbox.y0))
+            overlap_area = overlap_x * overlap_y
+            c_area = rect_area(c)
+            # Count as grid member if ≥30% of cluster area overlaps grid region
+            return c_area > 0 and overlap_area / c_area >= 0.30
+
+        # Also suppress text-label clusters that sit immediately above the grid
+        # (column headers like "gland", "hormone", "target organ") — these are short,
+        # narrow lines positioned within ~40 pt above the topmost grid box row.
+        def _is_header_label(c: fitz.Rect) -> bool:
+            # Very short cluster (text line height), positioned just above grid
+            if c.height > 20.0 or c.width > 100.0:
+                return False
+            gap_below = merged_bbox.y0 - c.y1
+            return 0 <= gap_below <= 40.0 and c.x0 >= merged_bbox.x0 - 20 and c.x1 <= merged_bbox.x1 + 20
+
+        result = []
+        merged_added = False
+        for c in clusters:
+            if _overlaps_grid(c) or _is_header_label(c):
+                if not merged_added:
+                    result.append(merged_bbox)
+                    merged_added = True
+                # Drop this cluster (replaced by merged_bbox)
+            else:
+                result.append(c)
+
+        if not merged_added:
+            # Pattern detected but no cluster matched (shouldn't happen) — return as-is
+            return clusters
+
+        return result
+
+    def find_upper_bound(
+        self,
+        caption: dict[str, Any],
+        lines: list[Line],
+        page_top: float = 40.0,
+        geo_rects: list[fitz.Rect] | None = None,
+    ) -> float:
         """
         Walk upward from caption to nearest preceding sentence, question part, or caption.
         Chains through short wrapped-tail lines instead of stopping at narrow lines.
+        Guards against stopping below known diagram artwork belonging to this figure.
         """
-        above = [ln for ln in lines if ln.bbox.y1 <= caption["bbox"].y0 + 0.5]
+        cap_y0 = caption["bbox"].y0
+        above = [ln for ln in lines if ln.bbox.y1 <= cap_y0 + 0.5]
         above.sort(key=lambda l: l.bbox.y0)
+
+        # Identify highest diagram drawing/raster in this figure's envelope (below any previous caption)
+        min_art_y0 = None
+        if geo_rects:
+            art_above = [r for r in geo_rects if r.y1 <= cap_y0 + 5.0 and r.y0 >= page_top]
+            if art_above:
+                last_cap_y1 = page_top
+                for ln in above:
+                    if self.caption_pattern.match(ln.text.strip()):
+                        last_cap_y1 = max(last_cap_y1, ln.bbox.y1)
+                art_this_fig = [r for r in art_above if r.y0 >= last_cap_y1 - 5.0]
+                if art_this_fig:
+                    min_art_y0 = min(r.y0 for r in art_this_fig)
+
         n = len(above)
         i = n - 1
         while i >= 0:
@@ -486,9 +642,16 @@ class CambridgeVisualExtractor:
             if self.caption_pattern.match(t):
                 return ln.bbox.y1
             if ln.bbox.x0 <= self.prose_max_x0:
-                if ln.width >= self.prose_min_width or t.endswith((".", ":", "?")) or _VIS_PART_RE.match(t) or PART_LABEL.match(t):
+                # If this line is below diagram artwork for this figure, it is an in-diagram annotation, not preceding body prose
+                if min_art_y0 is not None and ln.bbox.y0 >= min_art_y0 - 2.0:
+                    i -= 1
+                    continue
+
+                if _VIS_PART_RE.match(t) or PART_LABEL.match(t):
                     return ln.bbox.y1
-                # Check if this short line is a wrapped tail of a real paragraph
+                if ln.width >= self.prose_min_width and t.endswith((".", ":", "?")):
+                    return ln.bbox.y1
+                # Check if this short line is a wrapped tail of a full-width paragraph
                 j = i - 1
                 while j >= 0:
                     prev = above[j]
@@ -496,13 +659,13 @@ class CambridgeVisualExtractor:
                     if gap > self.prose_chain_gap or prev.bbox.x0 > self.prose_max_x0:
                         break
                     prev_t = prev.text.strip()
-                    if prev.width >= self.prose_min_width or prev_t.endswith((".", ":", "?")) or _VIS_PART_RE.match(prev_t):
+                    if (prev.width >= self.prose_min_width or _VIS_PART_RE.match(prev_t)) and t.endswith((".", ":", "?")):
                         return ln.bbox.y1
                     j -= 1
             i -= 1
         return page_top
 
-    def find_lower_bound(self, caption: Dict[str, Any], lines: List[Line], page_bottom: float = 780.0) -> float:
+    def find_lower_bound(self, caption: dict[str, Any], lines: list[Line], page_bottom: float = 780.0) -> float:
         """
         Walk downward from table caption to nearest subsequent question part, prose line, marks, or caption.
         """
@@ -522,11 +685,12 @@ class CambridgeVisualExtractor:
 
     def get_caption_bounds(
         self,
-        caption: Dict[str, Any],
-        lines: List[Line],
+        caption: dict[str, Any],
+        lines: list[Line],
         page_top: float = 40.0,
         page_bottom: float = 780.0,
-    ) -> Tuple[float, float]:
+        geo_rects: list[fitz.Rect] | None = None,
+    ) -> tuple[float, float]:
         """
         Returns (upper_y, lower_y) for a caption region based on whether it is a Fig or Table.
         - Fig captions sit below their artwork (walk upward for upper bound).
@@ -537,15 +701,15 @@ class CambridgeVisualExtractor:
             upper = caption["bbox"].y0
             lower = self.find_lower_bound(caption, lines, page_bottom)
         else:
-            upper = self.find_upper_bound(caption, lines, page_top)
+            upper = self.find_upper_bound(caption, lines, page_top, geo_rects=geo_rects)
             lower = caption["bbox"].y1
         return (upper, lower)
 
     def render_stitched(
         self,
         page: fitz.Page,
-        boxes: List[fitz.Rect],
-    ) -> Tuple[Image.Image, fitz.Rect]:
+        boxes: list[fitz.Rect],
+    ) -> tuple[Image.Image, fitz.Rect]:
         """
         Render boxes as separate content bands across blank gaps, stitching
         them into one composite image without bloated answer spaces.
@@ -580,7 +744,7 @@ class CambridgeVisualExtractor:
 
     # ── MCQ Paper Support ─────────────────────────────────────────────────────
 
-    def _is_mcq_paper(self, doc: fitz.Document, pdf_path: Optional[Path] = None) -> bool:
+    def _is_mcq_paper(self, doc: fitz.Document, pdf_path: Path | None = None) -> bool:
         """
         Return True when this is an MCQ-style paper (e.g. 5054/11, 5070/11, etc.).
 
@@ -654,7 +818,7 @@ class CambridgeVisualExtractor:
 
         return False
 
-    def get_mcq_question_anchors(self, lines: List[Line]) -> List[Tuple[int, float, float]]:
+    def get_mcq_question_anchors(self, lines: list[Line]) -> list[tuple[int, float, float]]:
         """
         Return [(q_number, y0, y1), ...] for MCQ-style question starts.
 
@@ -665,8 +829,8 @@ class CambridgeVisualExtractor:
         Both forms are detected. Duplicates (same question number) are removed,
         keeping the earliest occurrence.
         """
-        seen: Set[int] = set()
-        anchors: List[Tuple[int, float, float]] = []
+        seen: set[int] = set()
+        anchors: list[tuple[int, float, float]] = []
         for ln in lines:
             if ln.bbox.x0 > MCQ_Q_X0_MAX or ln.bbox.y0 <= self.header_y:
                 continue
@@ -686,9 +850,9 @@ class CambridgeVisualExtractor:
         pno: int,
         doc: fitz.Document,
         output_dir: Path,
-        manifest: List[Dict[str, Any]],
-        last_seen_question: Optional[int],
-    ) -> Optional[int]:
+        manifest: list[dict[str, Any]],
+        last_seen_question: int | None,
+    ) -> int | None:
         """
         Extract diagrams from one MCQ page.
 
@@ -734,7 +898,7 @@ class CambridgeVisualExtractor:
 
         # Build question spans: (q_number, span_y_top, span_y_bottom)
         page_bottom = page.rect.y1 - 20
-        spans: List[Tuple[int, float, float]] = []
+        spans: list[tuple[int, float, float]] = []
         for i, (qnum, q_y0, q_y1) in enumerate(mcq_anchors):
             if i + 1 < len(mcq_anchors):
                 span_bottom = mcq_anchors[i + 1][1]
@@ -743,7 +907,7 @@ class CambridgeVisualExtractor:
             spans.append((qnum, q_y0, span_bottom))
 
         # Assign each cluster to question span
-        assigned: Dict[int, List[fitz.Rect]] = {}
+        assigned: dict[int, list[fitz.Rect]] = {}
         for cluster in filtered_clusters:
             mid_y = (cluster.y0 + cluster.y1) / 2.0
             for qnum, span_top, span_bottom in spans:
@@ -759,15 +923,21 @@ class CambridgeVisualExtractor:
         for qnum, q_clusters in sorted(assigned.items()):
             q_clusters.sort(key=lambda r: r.y0)
 
-            # Group clusters that are close vertically (< 35pt gap) into visual diagram units
-            groups: List[List[fitz.Rect]] = []
+            # Group clusters that are close vertically (< 35pt gap) or moderately spaced (< 80pt) without intervening question prose
+            groups: list[list[fitz.Rect]] = []
             for c in q_clusters:
                 if not groups:
                     groups.append([c])
                 else:
                     last_group = groups[-1]
                     max_y1 = max(r.y1 for r in last_group)
-                    if c.y0 - max_y1 < 35.0:
+                    has_intervening_prose = any(
+                        (ln.bbox.x0 <= 80.0 and ln.width > 120.0)
+                        or (ln.text.strip().endswith(("?", ":", ".")) and ln.width > 60.0)
+                        for ln in lines
+                        if max_y1 <= ln.bbox.y0 and ln.bbox.y1 <= c.y0
+                    )
+                    if c.y0 - max_y1 < 35.0 or (not has_intervening_prose and c.y0 - max_y1 < 80.0):
                         last_group.append(c)
                     else:
                         groups.append([c])
@@ -779,12 +949,16 @@ class CambridgeVisualExtractor:
                 grp_x1 = max(r.x1 for r in grp)
 
                 # Find associated text lines (labels, axis titles, component names)
-                label_boxes: List[fitz.Rect] = []
+                label_boxes: list[fitz.Rect] = []
                 for ln in lines:
                     # Exclude question headers / full prose question lines
                     if ln.bbox.x0 <= 60 and ln.text.strip().split()[0].isdigit():
                         continue
                     if ln.bbox.x0 <= 80 and ln.width > 200:
+                        continue
+                    # Exclude footer text lines (copyright, paper code, turn over)
+                    t_lower = ln.text.strip().lower()
+                    if ln.bbox.y0 >= 785.0 or "[turn over" in t_lower or "©" in ln.text or "ucles" in t_lower:
                         continue
                     # Proximity checks (generous bounds so labels, arrow annotations, and axis titles are captured without being cut tight)
                     if grp_y0 - 25 <= ln.bbox.y0 and ln.bbox.y1 <= grp_y1 + 35:
@@ -820,8 +994,8 @@ class CambridgeVisualExtractor:
         self,
         pdf_path: Path,
         output_dir: Path,
-        force_mcq: Optional[bool] = None,
-    ) -> List[Dict[str, Any]]:
+        force_mcq: bool | None = None,
+    ) -> list[dict[str, Any]]:
 
         """
         Extract all visual figures and diagrams from PDF into output_dir.
@@ -834,9 +1008,11 @@ class CambridgeVisualExtractor:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         doc = fitz.open(str(pdf_path))
-        manifest: List[Dict[str, Any]] = []
-        last_seen_question: Optional[int] = None
-        last_seen_grid_part: Optional[Tuple[str, str, Optional[int], int]] = None
+        manifest: list[dict[str, Any]] = []
+        last_seen_question: int | None = None
+        last_seen_letter: str | None = None
+        last_seen_subpart: str | None = None
+        last_seen_grid_part: tuple[str, str, int | None, int] | None = None
 
         logger.info(f"CambridgeVisualExtractor: extracting visuals from {pdf_path.name} (pages: {len(doc)})")
 
@@ -862,7 +1038,7 @@ class CambridgeVisualExtractor:
             lines = self.get_lines(page)
             captions = self.get_captions(lines)
             first_cap_q = captions[0].get("q_from_caption") if captions else None
-            # Skip question anchors on cover page (pno == 0) — Cambridge questions never start on the cover page
+            prev_page_last_q = last_seen_question
             if pno == 0:
                 anchors = []
                 first_cap_q = None
@@ -871,27 +1047,49 @@ class CambridgeVisualExtractor:
                 if anchors:
                     if last_seen_grid_part and anchors[0][0] > (last_seen_grid_part[2] or 0):
                         last_seen_grid_part = None
-                    last_seen_question = anchors[-1][0]
+                    last_seen_question = max(last_seen_question or 0, anchors[-1][0])
                 elif first_cap_q:
                     if last_seen_grid_part and first_cap_q > (last_seen_grid_part[2] or 0):
                         last_seen_grid_part = None
                     last_seen_question = max(last_seen_question or 0, first_cap_q)
 
-            # Build question-scoped part anchors: [(q_num, part_label_str, target_type, y0), ...]
-            # Scoped strictly by question boundary so parts from question N never bleed into question N+1.
-            part_anchors: List[Tuple[Optional[int], str, str, float]] = []
-            _curr_q: Optional[int] = anchors[0][0] if anchors else (first_cap_q or last_seen_question)
-            _current_letter: Optional[str] = None
-            _current_subpart: Optional[str] = None
+            # Determine active question and part state at the top of the page
+            page_initial_part: tuple[str, str] | None = None
+            if anchors and anchors[0][1] <= PRINT_Y0 + 20.0:
+                page_top_q = anchors[0][0]
+                if page_top_q != prev_page_last_q:
+                    last_seen_letter = None
+                    last_seen_subpart = None
+                _curr_q = page_top_q
+                _current_letter = None
+                _current_subpart = None
+            elif prev_page_last_q is not None:
+                page_top_q = prev_page_last_q
+                if last_seen_subpart:
+                    page_initial_part = ("sub_part", last_seen_subpart)
+                elif last_seen_letter:
+                    page_initial_part = ("part", last_seen_letter)
+                _curr_q = page_top_q
+                _current_letter = last_seen_letter
+                _current_subpart = last_seen_subpart
+            else:
+                page_top_q = anchors[0][0] if anchors else first_cap_q
+                _curr_q = page_top_q
+                _current_letter = None
+                _current_subpart = None
 
-            def _get_active_q_for_y(y: float) -> Optional[int]:
-                active_q = anchors[0][0] if anchors else (first_cap_q or last_seen_question)
+            def _get_active_q_for_y(y: float) -> int | None:
+                active_q = page_top_q
                 for qn, qy in anchors:
-                    if qy <= y:
+                    if qy <= y + 10:
                         active_q = qn
                     else:
                         break
                 return active_q
+
+            # Build question-scoped part anchors: [(q_num, part_label_str, target_type, y0), ...]
+            # Scoped strictly by question boundary so parts from question N never bleed into question N+1.
+            part_anchors: list[tuple[int | None, str, str, float]] = []
 
             for ln in lines:
                 active_q_for_ln = _get_active_q_for_y(ln.bbox.y0)
@@ -915,6 +1113,9 @@ class CambridgeVisualExtractor:
                     elif rom and _current_letter:
                         _current_subpart = f"{_current_letter}({rom.lower()})"
                         part_anchors.append((_curr_q, _current_subpart, "sub_part", ln.bbox.y0))
+                    elif rom and not _current_letter:
+                        _current_subpart = rom.lower()
+                        part_anchors.append((_curr_q, _current_subpart, "sub_part", ln.bbox.y0))
                     else:
                         continue
                 elif sub_num_m and _current_subpart:
@@ -927,10 +1128,13 @@ class CambridgeVisualExtractor:
                     tgt_lbl = _current_subpart or _current_letter or f"Q{_curr_q}"
                     last_seen_grid_part = (tgt_t, tgt_lbl, _curr_q, pno)
 
-            def _resolve_part_target(q_target: Optional[int], target_y: float) -> Tuple[str, str]:
+            def _resolve_part_target(q_target: int | None, target_y: float) -> tuple[str, str]:
                 """Resolve (target_type, target_label) scoped strictly to q_target's own parts."""
-                best_label = f"Q{q_target}"
-                best_type = "question"
+                if q_target == page_top_q and page_initial_part:
+                    best_type, best_label = page_initial_part
+                else:
+                    best_label = f"Q{q_target}"
+                    best_type = "question"
                 q_parts = [(plabel, ptype, py0) for pq, plabel, ptype, py0 in part_anchors if pq == q_target]
                 for plabel, ptype, py0 in q_parts:
                     if py0 <= target_y + 10:
@@ -946,12 +1150,12 @@ class CambridgeVisualExtractor:
             # 0. Pre-scan for graph grid meshes (e.g. millimeter or coordinate grids).
             # Individual grid lines can be 300-700pt long and <1pt thin, which would otherwise
             # be dropped by page-spanning line or margin filters.
-            grid_boxes: List[fitz.Rect] = []
-            grid_line_indices: Set[int] = set()
+            grid_boxes: list[fitz.Rect] = []
+            grid_line_indices: set[int] = set()
 
             raw_drawings_list = page.get_drawings(extended=True)
-            h_cands: List[Tuple[int, fitz.Rect]] = []
-            v_cands: List[Tuple[int, fitz.Rect]] = []
+            h_cands: list[tuple[int, fitz.Rect]] = []
+            v_cands: list[tuple[int, fitz.Rect]] = []
             for d_idx, d in enumerate(raw_drawings_list):
                 if d.get("type") in ("clip", "group"):
                     continue
@@ -972,23 +1176,23 @@ class CambridgeVisualExtractor:
                     v_cands.append((d_idx, r_c))
 
             if len(h_cands) >= 6 and len(v_cands) >= 6:
-                adj_h: Dict[int, List[int]] = {i: [] for i, _ in h_cands}
-                adj_v: Dict[int, List[int]] = {j: [] for j, _ in v_cands}
+                adj_h: dict[int, list[int]] = {i: [] for i, _ in h_cands}
+                adj_v: dict[int, list[int]] = {j: [] for j, _ in v_cands}
                 for i, hr in h_cands:
                     for j, vr in v_cands:
                         if hr.x0 - 2.0 <= vr.x0 <= hr.x1 + 2.0 and vr.y0 - 2.0 <= hr.y0 <= vr.y1 + 2.0:
                             adj_h[i].append(j)
                             adj_v[j].append(i)
 
-                visited_h: Set[int] = set()
-                visited_v: Set[int] = set()
+                visited_h: set[int] = set()
+                visited_v: set[int] = set()
                 for i, _ in h_cands:
                     if i in visited_h:
                         continue
                     q_h = [i]
-                    q_v: List[int] = []
+                    q_v: list[int] = []
                     comp_h = {i}
-                    comp_v: Set[int] = set()
+                    comp_v: set[int] = set()
                     visited_h.add(i)
                     while q_h or q_v:
                         while q_h:
@@ -1025,7 +1229,7 @@ class CambridgeVisualExtractor:
             #    region inflate rects to negative/far-out coordinates, causing them to merge
             #    with the margin strip and get silently dropped (root cause of Fig 3.1 bug).
             filtered_drawings = []
-            current_scissor: Optional[fitz.Rect] = None
+            current_scissor: fitz.Rect | None = None
             for d_idx, d in enumerate(raw_drawings_list):
                 if d_idx in grid_line_indices:
                     continue
@@ -1091,9 +1295,11 @@ class CambridgeVisualExtractor:
                 # Exclude PapaCambridge diagonal ribbon in top-right corner
                 if r.x0 >= 380.0 and r.y0 <= 20.0 and r.y1 <= 220.0 and r.x1 >= 570.0:
                     continue
+                # Check for PapaCambridge ribbon watermark only if image is located in the top corner/margin zone
+                is_ribbon_zone = (r.x0 >= 350.0 and r.y0 <= 60.0) or (r.y0 <= 30.0 and r.y1 <= 80.0)
                 bbox_key = tuple(img["bbox"])
                 xref = img.get("xref") or raster_xref_map.get(bbox_key)
-                if xref and self._is_papacambridge_ribbon(doc, xref):
+                if is_ribbon_zone and xref and self._is_papacambridge_ribbon(doc, xref):
                     continue
                 filtered_rasters.append(r)
 
@@ -1101,12 +1307,15 @@ class CambridgeVisualExtractor:
 
             claimed = [False] * len(all_geo)
             overlaps_any_caption = [False] * len(all_geo)
-            claimed_lines: Set[int] = set()
+            claimed_lines: set[int] = set()
 
             if captions:
-                bounds: List[Tuple[float, float]] = []
+                bounds: list[tuple[float, float]] = []
+                all_geo_rects = [r for _, r in all_geo]
                 for cap in captions:
-                    upper, lower = self.get_caption_bounds(cap, lines, page_top=PRINT_Y0, page_bottom=PRINT_Y1)
+                    upper, lower = self.get_caption_bounds(
+                        cap, lines, page_top=PRINT_Y0, page_bottom=PRINT_Y1, geo_rects=all_geo_rects
+                    )
                     bounds.append((upper, lower))
 
                 # Mark geometry overlapping any caption band to prevent duplicate fallbacks
@@ -1116,17 +1325,85 @@ class CambridgeVisualExtractor:
                             overlaps_any_caption[gi] = True
                             break
 
+                # Precompute horizontal column limits for side-by-side captions
+                col_limits: dict[int, tuple[float, float]] = {}
+                for ci, cap in enumerate(captions):
+                    upper, lower = bounds[ci]
+                    overlapping = [
+                        cj for cj, (u2, l2) in enumerate(bounds)
+                        if not (l2 < upper or u2 > lower)
+                    ]
+                    if len(overlapping) <= 1:
+                        col_limits[ci] = (PRINT_X0, PRINT_X1)
+                    else:
+                        side_by_side = sorted(
+                            overlapping,
+                            key=lambda idx: (captions[idx]["bbox"].x0 + captions[idx]["bbox"].x1) / 2
+                        )
+                        pos = side_by_side.index(ci)
+
+                        def _get_cap_x_extents(idx: int) -> tuple[float, float]:
+                            c_x0 = captions[idx]["bbox"].x0
+                            c_x1 = captions[idx]["bbox"].x1
+                            x_min, x_max = c_x0, c_x1
+                            u_idx, l_idx = bounds[idx]
+                            for _, r_geo in all_geo:
+                                if r_geo.y1 >= u_idx and r_geo.y0 <= l_idx:
+                                    g_mid = (r_geo.x0 + r_geo.x1) / 2
+                                    closest = min(
+                                        side_by_side,
+                                        key=lambda s_idx: abs(g_mid - (captions[s_idx]["bbox"].x0 + captions[s_idx]["bbox"].x1) / 2)
+                                    )
+                                    if closest == idx:
+                                        x_min = min(x_min, r_geo.x0)
+                                        x_max = max(x_max, r_geo.x1)
+                            return x_min, x_max
+
+                        if pos > 0:
+                            prev_idx = side_by_side[pos - 1]
+                            _, prev_max = _get_cap_x_extents(prev_idx)
+                            curr_min, _ = _get_cap_x_extents(ci)
+                            if prev_max < curr_min:
+                                col_x0 = (prev_max + curr_min) / 2
+                            else:
+                                prev_mid = (captions[prev_idx]["bbox"].x0 + captions[prev_idx]["bbox"].x1) / 2
+                                curr_mid = (captions[ci]["bbox"].x0 + captions[ci]["bbox"].x1) / 2
+                                col_x0 = (prev_mid + curr_mid) / 2
+                        else:
+                            col_x0 = PRINT_X0
+
+                        if pos < len(side_by_side) - 1:
+                            next_idx = side_by_side[pos + 1]
+                            _, curr_max = _get_cap_x_extents(ci)
+                            next_min, _ = _get_cap_x_extents(next_idx)
+                            if curr_max < next_min:
+                                col_x1 = (curr_max + next_min) / 2
+                            else:
+                                curr_mid = (captions[ci]["bbox"].x0 + captions[ci]["bbox"].x1) / 2
+                                next_mid = (captions[next_idx]["bbox"].x0 + captions[next_idx]["bbox"].x1) / 2
+                                col_x1 = (curr_mid + next_mid) / 2
+                        else:
+                            col_x1 = PRINT_X1
+
+                        col_limits[ci] = (col_x0, col_x1)
+
                 for ci, cap in enumerate(captions):
                     upper, lower = bounds[ci]
                     overlapping = [
                         cj for cj, (u2, l2) in enumerate(bounds)
                         if cj != ci and not (l2 < upper or u2 > lower)
                     ]
+                    col_x0, col_x1 = col_limits.get(ci, (PRINT_X0, PRINT_X1))
 
                     def nearest_caption_idx(x_center: float) -> int:
-                        best, best_d = ci, abs(captions[ci]["bbox"].x0 - x_center)
                         for cj in overlapping:
-                            d = abs(captions[cj]["bbox"].x0 - x_center)
+                            cx0, cx1 = col_limits.get(cj, (PRINT_X0, PRINT_X1))
+                            if cx0 <= x_center <= cx1:
+                                return cj
+                        best, best_d = ci, abs((captions[ci]["bbox"].x0 + captions[ci]["bbox"].x1) / 2 - x_center)
+                        for cj in overlapping:
+                            cj_mid = (captions[cj]["bbox"].x0 + captions[cj]["bbox"].x1) / 2
+                            d = abs(cj_mid - x_center)
                             if d < best_d:
                                 best, best_d = cj, d
                         return best
@@ -1143,7 +1420,7 @@ class CambridgeVisualExtractor:
                             # Major vertical overlap or enclosed in band
                             if overlap_h / max(r.height, 1.0) >= 0.25 or (r.y0 >= upper - 8 and r.y1 <= lower + 8):
                                 if nearest_caption_idx(r.x0 + r.width / 2) == ci:
-                                    clipped = r & fitz.Rect(PRINT_X0, upper, PRINT_X1, lower)
+                                    clipped = r & fitz.Rect(col_x0, upper, col_x1, lower)
                                     if not clipped.is_empty:
                                         claimed_boxes.append(clipped)
                                         claimed[gi] = True
@@ -1174,12 +1451,13 @@ class CambridgeVisualExtractor:
                                 continue
 
                             if nearest_caption_idx(ln.bbox.x0 + ln.width / 2) == ci:
-                                claimed_boxes.append(ln.bbox)
-                                claimed_lines.add(li)
+                                if ln.bbox.x0 >= col_x0 - 5.0 and ln.bbox.x1 <= col_x1 + 5.0:
+                                    claimed_boxes.append(ln.bbox)
+                                    claimed_lines.add(li)
 
                     canvas, bbox_out = self.render_stitched(page, claimed_boxes)
 
-                    qnum: Optional[int] = None
+                    qnum: int | None = None
                     for qn, y in anchors:
                         if y <= cap["bbox"].y0:
                             qnum = qn
@@ -1206,23 +1484,29 @@ class CambridgeVisualExtractor:
                         r"\bFig(?:ure)?\s*" + re.escape(cap["label"]),
                         re.IGNORECASE,
                     )
-                    target_type: Optional[str] = None
-                    target_label: Optional[str] = None
+                    target_type: str | None = None
+                    target_label: str | None = None
 
+                    _scan_letter = last_seen_letter if page_top_q == last_seen_question else None
                     for ln2 in lines:
                         pm2 = _VIS_PART_RE.match(ln2.text.strip())
-                        if pm2 and fig_ref_re.search(pm2.group(5) or ""):
+                        if pm2:
                             comp_l2, comp_r2, ltr2, rom2 = pm2.group(1), pm2.group(2), pm2.group(3), pm2.group(4)
-                            if comp_l2 and comp_r2:
-                                target_type = "sub_part"
-                                target_label = f"{comp_l2.lower()}({comp_r2.lower()})"
+                            if comp_l2:
+                                _scan_letter = comp_l2.lower()
                             elif ltr2:
-                                target_type = "part"
-                                target_label = ltr2.lower()
-                            elif rom2:
-                                target_type = "sub_part"
-                                target_label = f"{_current_letter}({rom2.lower()})" if _current_letter else rom2.lower()
-                            break
+                                _scan_letter = ltr2.lower()
+                            if fig_ref_re.search(pm2.group(5) or ""):
+                                if comp_l2 and comp_r2:
+                                    target_type = "sub_part"
+                                    target_label = f"{comp_l2.lower()}({comp_r2.lower()})"
+                                elif ltr2:
+                                    target_type = "part"
+                                    target_label = ltr2.lower()
+                                elif rom2:
+                                    target_type = "sub_part"
+                                    target_label = f"{_scan_letter}({rom2.lower()})" if _scan_letter else rom2.lower()
+                                break
 
                     # Strategy 2: vertical containment against question's own part anchors
                     if target_type is None:
@@ -1275,7 +1559,7 @@ class CambridgeVisualExtractor:
 
                 if unclaimed_vectors:
                     # Identify prose lines to prevent paragraph text from bleeding into diagram crops
-                    prose_indices: Set[int] = set()
+                    prose_indices: set[int] = set()
                     for i, ln in enumerate(lines):
                         if ln.bbox.x0 <= 120.0 and ln.width >= 120.0:
                             prose_indices.add(i)
@@ -1305,6 +1589,9 @@ class CambridgeVisualExtractor:
                             combined_vecs.append(lbl)
 
                     clustered_fallbacks = self.cluster_rects(combined_vecs, pad_x=55.0, pad_y=20.0)
+                    # Merge multi-column matching-exercise layouts (e.g. "Draw lines to link…")
+                    # into a single bounding rect before rendering.
+                    clustered_fallbacks = self._merge_matching_columns(clustered_fallbacks, unclaimed_vectors)
                     for r in clustered_fallbacks:
                         # Must be strictly within printable bounds and substantial
                         if r.x0 < PRINT_X0 or r.x1 > PRINT_X1 or r.y0 < 55.0 or r.y1 > PRINT_Y1:
@@ -1336,20 +1623,16 @@ class CambridgeVisualExtractor:
                                         r_expanded = rect_union(r_expanded, ln.bbox)
                         r = r_expanded
 
-                        qnum = None
-                        for qn, y in anchors:
-                            if y <= r.y0 + 10:
-                                qnum = qn
-                        if qnum is None:
-                            qnum = last_seen_question
+                        qnum = _get_active_q_for_y(r.y0)
 
                         # Part association: vertical containment against question's own part anchors
                         target_type, target_label = _resolve_part_target(qnum, r.y0)
 
                         is_grid = any(rects_touch(r, gbox, pad=5.0) for gbox in grid_boxes)
+                        has_local_anchor = any(pq == qnum and py0 <= r.y0 + 10 for pq, plbl, pt, py0 in part_anchors)
                         if (
                             is_grid
-                            and target_type == "question"
+                            and (not has_local_anchor)
                             and last_seen_grid_part is not None
                             and last_seen_grid_part[2] == qnum
                             and (pno - last_seen_grid_part[3] <= 2)
@@ -1410,12 +1693,7 @@ class CambridgeVisualExtractor:
                         if any(rects_touch(t_rect, eb, pad=10.0) for eb in page_extracted):
                             continue
 
-                        qnum = None
-                        for qn, y in anchors:
-                            if y <= t_rect.y0 + 10:
-                                qnum = qn
-                        if qnum is None:
-                            qnum = last_seen_question
+                        qnum = _get_active_q_for_y(t_rect.y0)
 
                         # Part association: vertical containment against question's own part anchors
                         target_type, target_label = _resolve_part_target(qnum, t_rect.y0)
@@ -1455,6 +1733,15 @@ class CambridgeVisualExtractor:
                 except Exception as e:
                     logger.debug(f"find_tables extraction failed on page {pno}: {e}")
 
+            if _curr_q is not None:
+                if last_seen_question is not None and last_seen_question > _curr_q:
+                    last_seen_letter = None
+                    last_seen_subpart = None
+                else:
+                    last_seen_question = _curr_q
+                    last_seen_letter = _current_letter
+                    last_seen_subpart = _current_subpart
+
         doc.close()
 
         # Post-extraction sanity validation: enforce caption ground truth and schema filenames
@@ -1472,8 +1759,8 @@ class CambridgeVisualExtractor:
         return manifest
 
     def _validate_and_sanitize_manifest(
-        self, manifest: List[Dict[str, Any]], output_dir: Path
-    ) -> List[Dict[str, Any]]:
+        self, manifest: list[dict[str, Any]], output_dir: Path
+    ) -> list[dict[str, Any]]:
         """
         Post-extraction sanity validator and reconciler:
         1. Enforces that any captioned visual (Fig. X.Y or Table X.Y) has question == X.
@@ -1481,7 +1768,7 @@ class CambridgeVisualExtractor:
            p{page}_q{question}_{discriminator}_{label}.png
         3. Reconciles on-disk files if any rename is required.
         """
-        modified = False
+        used_fnames: dict[str, int] = {}
         for entry in manifest:
             cap = entry.get("caption") or ""
             current_q = entry.get("question")
@@ -1496,7 +1783,6 @@ class CambridgeVisualExtractor:
                     f"question was {current_q}, but caption '{cap}' specifies Q{cap_q}."
                 )
                 entry["question"] = cap_q
-                modified = True
 
             # Reconcile discriminator tag: "question", "part_{label}", or "sub_part_{label}"
             target_type = entry.get("target_type")
@@ -1515,17 +1801,28 @@ class CambridgeVisualExtractor:
             else:
                 tag_str = "question"
 
-            # Reconcile label tag: "Fig_X_Y", "Table_X_Y", or "diagram_{N}"
+            # Reconcile label tag: "Fig_X_Y", "Table_X_Y", "mcq_{N}", or "diagram_{N}"
             if m_fig:
                 clean_label = f"Fig_{m_fig.group(1)}_{m_fig.group(2)}"
             elif m_tab:
                 clean_label = f"Table_{m_tab.group(1)}_{m_tab.group(2)}"
             else:
                 old_fn = entry.get("filename", "")
-                m_end = re.search(r"(diagram_\d+|table_\d+|Fig_[^.]+|Table_[^.]+)", old_fn, re.I)
+                m_end = re.search(r"(mcq_\d+|diagram_\d+|table_\d+|Fig_[^.]+|Table_[^.]+)", old_fn, re.I)
                 clean_label = m_end.group(1) if m_end else "diagram_1"
 
-            expected_fname = f"p{entry['page']}_q{entry['question']}_{tag_str}_{clean_label}.png"
+            base_fname = f"p{entry['page']}_q{entry['question']}_{tag_str}_{clean_label}.png"
+            count = used_fnames.get(base_fname, 0) + 1
+            used_fnames[base_fname] = count
+            if count > 1:
+                name_stem = Path(base_fname).stem
+                new_stem = re.sub(r"_(\d+)$", f"_{count}", name_stem)
+                if new_stem == name_stem:
+                    new_stem = f"{name_stem}_{count}"
+                expected_fname = f"{new_stem}.png"
+            else:
+                expected_fname = base_fname
+
             old_fname = entry.get("filename")
 
             if old_fname != expected_fname:
@@ -1540,6 +1837,5 @@ class CambridgeVisualExtractor:
                 entry["filename"] = expected_fname
                 entry["file"] = expected_fname
                 entry["relative_path"] = f"{output_dir.name}/{expected_fname}"
-                modified = True
 
         return manifest

@@ -1,4 +1,5 @@
 from urllib.parse import quote
+
 from pipeline.scraper.models import ScrapeTarget
 from pipeline.scraper.subject_registry import SubjectRegistry
 

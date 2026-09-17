@@ -1,10 +1,10 @@
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-from pipeline.scraper.models import ScrapeTarget, PaperFileInfo, PaperDocumentType
-from pipeline.scraper.url_builder import URLBuilder
+
+from pipeline.scraper.downloader import PDFDownloader
+from pipeline.scraper.models import PaperDocumentType, ScrapeTarget
 from pipeline.scraper.scraper import PapaCambridgeScraper
-from pipeline.scraper.downloader import PDFDownloader, HTTPStatusError
+from pipeline.scraper.url_builder import URLBuilder
+
 
 def test_url_builder():
     # Test post-2018 target (may-june format)
@@ -105,7 +105,7 @@ def test_url_extraction_static():
         </body>
     </html>
     """
-    
+
     urls = scraper._extract_pdf_urls_static(mock_html)
     assert len(urls) == 2
     assert any("7707_s23_qp_12.pdf" in u for u in urls)

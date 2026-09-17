@@ -1,17 +1,27 @@
-from pipeline.extractor.schemas import (
-    MCQOptions, MCQQuestion, MCQAnswer, EssayQuestion, EssayQuestionPart, EssayAnswer, EssayPartAnswer,
-    MCQQuestionsContainer, MCQAnswersContainer, EssayQuestionsContainer, EssayAnswersContainer
+from pipeline.extractor.agentic_extractor import AgenticExtractor
+from pipeline.extractor.classifier_agent import (
+    ClassificationContainer,
+    ClassifierAgent,
+    QuotaExceededError,
+    SingleClassification,
 )
-from pipeline.extractor.text_extractor import TextExtractor, TextBlock, ExtractedPage
-from pipeline.extractor.paper_type_detector import PaperTypeDetector, PaperCategory
-from pipeline.extractor.syllabus_loader import SyllabusLoader
-from pipeline.extractor.question_parser import QuestionParser
-from pipeline.extractor.topic_classifier import TopicClassifierAgent, TopicClassificationResult
-from pipeline.extractor.difficulty_analyzer import DifficultyAnalyzerAgent, DifficultyAnalysisResult
-from pipeline.extractor.pymupdf_extractor import PyMuPDFExtractor
-from pipeline.extractor.classifier_agent import ClassifierAgent, SingleClassification, ClassificationContainer, QuotaExceededError
-from pipeline.extractor.agentic_parser import AgenticPDFParser
 from pipeline.extractor.marks_validator import MarkHierarchyValidator
+from pipeline.extractor.paper_type_detector import PaperCategory, PaperTypeDetector
+from pipeline.extractor.schemas import (
+    EssayAnswer,
+    EssayAnswersContainer,
+    EssayPartAnswer,
+    EssayQuestion,
+    EssayQuestionPart,
+    EssayQuestionsContainer,
+    MCQAnswer,
+    MCQAnswersContainer,
+    MCQOptions,
+    MCQQuestion,
+    MCQQuestionsContainer,
+)
+from pipeline.extractor.syllabus_loader import SyllabusLoader
+from pipeline.extractor.text_utils import clean_answer_prompts, clean_math_text
 
 __all__ = [
     "QuotaExceededError",
@@ -26,21 +36,14 @@ __all__ = [
     "MCQAnswersContainer",
     "EssayQuestionsContainer",
     "EssayAnswersContainer",
-    "TextExtractor",
-    "TextBlock",
-    "ExtractedPage",
     "PaperTypeDetector",
     "PaperCategory",
     "SyllabusLoader",
-    "QuestionParser",
-    "TopicClassifierAgent",
-    "TopicClassificationResult",
-    "DifficultyAnalyzerAgent",
-    "DifficultyAnalysisResult",
-    "PyMuPDFExtractor",
     "ClassifierAgent",
     "SingleClassification",
     "ClassificationContainer",
-    "AgenticPDFParser",
+    "AgenticExtractor",
     "MarkHierarchyValidator",
+    "clean_math_text",
+    "clean_answer_prompts",
 ]

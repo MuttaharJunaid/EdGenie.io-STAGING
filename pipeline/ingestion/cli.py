@@ -3,18 +3,18 @@ Stage 4 — PostgreSQL Ingestion (Relational + JSONB) & Firebase Asset Storage C
 """
 import logging
 from pathlib import Path
-from typing import Optional
-import typer
-from rich.console import Console
-from rich.table import Table
-from rich.logging import RichHandler
 
 import dotenv
+import typer
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.table import Table
+
 dotenv.load_dotenv()
 
+from pipeline.ingestion.firebase_storage import FirebaseStorageManager
 from pipeline.ingestion.postgres_client import PostgresClient
 from pipeline.ingestion.postgres_ingestor import PostgresIngestor
-from pipeline.ingestion.firebase_storage import FirebaseStorageManager
 
 app = typer.Typer(help="EdGenie Stage 4 — PostgreSQL (Relational + JSONB) Ingestion & Firebase Storage CLI")
 console = Console()
@@ -34,7 +34,7 @@ def setup_logging(level: str) -> None:
 
 @app.command(name="db-init")
 def db_init(
-    uri: Optional[str] = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI (defaults to POSTGRES_URI or DATABASE_URL)"),
+    uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI (defaults to POSTGRES_URI or DATABASE_URL)"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
     """Initialize PostgreSQL database tables, foreign keys, and B-Tree/GIN indexes."""
@@ -52,7 +52,7 @@ def db_init(
 
 @app.command(name="db-stats")
 def db_stats(
-    uri: Optional[str] = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
+    uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
     """Display current record counts across all PostgreSQL tables."""
@@ -70,7 +70,7 @@ def db_stats(
 def db_paper(
     json_path: str = typer.Option(..., "--json", "-j", help="Path to Stage 2 paper JSON file"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-ingestion"),
-    uri: Optional[str] = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
+    uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
     """Ingest a single paper JSON and its visual manifest into PostgreSQL."""
@@ -100,7 +100,7 @@ def db_paper(
 def db_dir(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory containing Stage 2 JSON files"),
     force: bool = typer.Option(False, "--force", "-f", help="Force re-ingestion"),
-    uri: Optional[str] = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
+    uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
     """Ingest all paper JSON files inside a directory tree into PostgreSQL."""
@@ -115,7 +115,7 @@ def db_dir(
 
     try:
         result = ingestor.ingest_directory(d_path, force=force)
-        console.print(f"\n[bold green]Directory Ingestion Finished![/bold green]")
+        console.print("\n[bold green]Directory Ingestion Finished![/bold green]")
         console.print(f"  Total JSON Papers Found: [cyan]{result.get('total_files')}[/cyan]")
         console.print(f"  Successfully Ingested:   [green]{result.get('successful_papers')}[/green]")
         console.print(f"  Failed Papers:           [red]{result.get('failed_papers')}[/red]")
@@ -171,7 +171,7 @@ def storage_dir(
     storage_mgr = FirebaseStorageManager()
     mapping = storage_mgr.sync_storage_dir(s_path)
 
-    console.print(f"[bold green]Firebase Storage Sync Complete![/bold green]")
+    console.print("[bold green]Firebase Storage Sync Complete![/bold green]")
     console.print(f"Uploaded/mapped [yellow]{len(mapping)}[/yellow] assets with CDN prefix [blue]{storage_mgr.cdn_prefix}[/blue]")
 
     table = Table(title="Sample Asset CDN URLs")
@@ -189,7 +189,7 @@ def storage_dir(
 @app.command(name="full-sync")
 def full_sync(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Storage directory to sync assets and ingest to DB"),
-    uri: Optional[str] = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
+    uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
     """Perform both Firebase Storage asset upload and PostgreSQL database ingestion for a directory."""
@@ -208,7 +208,7 @@ def full_sync(
     ingestor = PostgresIngestor(db_client=db_client)
     res = ingestor.ingest_directory(d_path)
 
-    console.print(f"[bold green]Full Sync Finished Successfully![/bold green]")
+    console.print("[bold green]Full Sync Finished Successfully![/bold green]")
     console.print(f"  Papers Ingested:    {res.get('successful_papers')}")
     console.print(f"  Questions Ingested: {res.get('total_questions')}")
     console.print(f"  Answers Ingested:   {res.get('total_answers')}")

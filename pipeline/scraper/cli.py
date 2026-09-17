@@ -1,16 +1,17 @@
+import json
 import logging
-from pathlib import Path
-from typing import List, Optional
-import typer
-from rich.console import Console
-from rich.table import Table
-from rich.logging import RichHandler
+from datetime import datetime
 
 import dotenv
+import typer
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.table import Table
+
 dotenv.load_dotenv()
 
 from pipeline.config import settings
-from pipeline.scraper.models import ScrapeTarget, ScrapeManifest
+from pipeline.scraper.models import ScrapeManifest, ScrapeTarget
 from pipeline.scraper.scraper import PapaCambridgeScraper
 
 # Initialize Typer App
@@ -32,10 +33,10 @@ def scrape(
     level: str = typer.Option("o-level", "--level", "-l", help="CAIE Level (o-level or as-and-a-level)"),
     subject: str = typer.Option("accounting", "--subject", "-s", help="Subject name (e.g. accounting, physics)"),
     code: str = typer.Option("7707", "--code", "-c", help="Subject code (e.g. 7707, 9706)"),
-    year: Optional[int] = typer.Option(None, "--year", "-y", help="Specific year to scrape"),
-    year_start: Optional[int] = typer.Option(None, "--year-start", help="Starting year for range scrape"),
-    year_end: Optional[int] = typer.Option(None, "--year-end", help="Ending year for range scrape"),
-    session: List[str] = typer.Option(["jun", "nov"], "--session", "-se", help="Sessions to scrape (jun/nov)"),
+    year: int | None = typer.Option(None, "--year", "-y", help="Specific year to scrape"),
+    year_start: int | None = typer.Option(None, "--year-start", help="Starting year for range scrape"),
+    year_end: int | None = typer.Option(None, "--year-end", help="Ending year for range scrape"),
+    session: list[str] = typer.Option(["jun", "nov"], "--session", "-se", help="Sessions to scrape (jun/nov)"),
     force: bool = typer.Option(False, "--force", "-f", help="Force download even if files already exist"),
     dry_run: bool = typer.Option(False, "--dry-run", "--dry", help="Only show what would be downloaded, do not execute"),
     log_level: str = typer.Option(settings.log_level, "--log-level", help="Logging level (DEBUG/INFO/WARNING/ERROR)")
@@ -73,12 +74,9 @@ def scrape(
         years = list(range(year_start, year_end + 1))
     else:
         # Fallback to current year if nothing else is specified
-        current_year = datetime.now().year if 'datetime' in globals() else 2026
-        # Let's import datetime here just to be safe
-        from datetime import datetime
         years.append(datetime.now().year)
 
-    console.print(f"[bold blue]Starting EdGenie Scraper Pipeline...[/bold blue]")
+    console.print("[bold blue]Starting EdGenie Scraper Pipeline...[/bold blue]")
     console.print(f"Subject: [yellow]{subject} ({code})[/yellow] | Level: [yellow]{level}[/yellow]")
     console.print(f"Years: [yellow]{years}[/yellow] | Sessions: [yellow]{valid_sessions}[/yellow]")
     if force:
@@ -104,7 +102,7 @@ def scrape(
     for target in targets:
         console.print(f"\n[bold cyan]Processing Target: {target.year} {target.session.upper()}[/bold cyan]")
         scraper = PapaCambridgeScraper(target)
-        
+
         try:
             downloaded = scraper.scrape(force=force, dry_run=dry_run)
             total_downloaded += len(downloaded)
@@ -119,13 +117,13 @@ def scrape(
 @app.command()
 def list_papers(
     code: str = typer.Option(..., "--code", "-c", help="Subject code to inspect"),
-    year: Optional[int] = typer.Option(None, "--year", "-y", help="Filter by year"),
-    session: Optional[str] = typer.Option(None, "--session", "-s", help="Filter by session (jun/nov)"),
+    year: int | None = typer.Option(None, "--year", "-y", help="Filter by year"),
+    session: str | None = typer.Option(None, "--session", "-s", help="Filter by session (jun/nov)"),
     log_level: str = typer.Option("WARNING", "--log-level", help="Logging level")
 ):
     """Lists downloaded files and metadata stored in scrape manifests for a subject code."""
     setup_logging(log_level)
-    
+
     subject_dir = settings.storage_dir / code
     if not subject_dir.exists() or not subject_dir.is_dir():
         console.print(f"[bold red]Error:[/bold red] Subject directory {subject_dir} does not exist. No papers downloaded yet.")
@@ -142,7 +140,7 @@ def list_papers(
 
     # Find all scrape_manifest.json files under subject_dir
     manifest_paths = list(subject_dir.glob("**/scrape_manifest.json"))
-    
+
     if not manifest_paths:
         console.print(f"[yellow]No scrape manifests found in {subject_dir}. Attempting to list raw files directly...[/yellow]")
         # Raw file listing if no manifests
@@ -162,14 +160,11 @@ def list_papers(
         for manifest_path in manifest_paths:
             # Parse manifest
             try:
-                with open(manifest_path, "r") as f:
-                    manifest_data = json.load(f) if 'json' in globals() else None
-                    if manifest_data is None:
-                        import json
-                        manifest_data = json.load(f)
-                
+                with open(manifest_path, encoding="utf-8") as f:
+                    manifest_data = json.load(f)
+
                 manifest = ScrapeManifest(**manifest_data)
-                
+
                 # Apply filters
                 if year and manifest.target.year != year:
                     continue
