@@ -79,10 +79,14 @@ class PostgresIngestor:
             "paper_number": 1,
         }
 
-    def ingest_paper_json(self, json_path: Path, force: bool = False) -> dict[str, Any]:
+    def ingest_paper_json(self, json_path: Path) -> dict[str, Any]:
         """
         Ingests a single Stage 2 paper JSON file and its Stage 3 visual manifest into PostgreSQL.
+        Schema is auto-initialized on first call so this works on a fresh database.
         """
+        # Ensure schema tables and indexes exist (idempotent via IF NOT EXISTS)
+        self.db.init_schema()
+
         json_path = Path(json_path).resolve()
         if not json_path.exists():
             raise FileNotFoundError(f"JSON file not found: {json_path}")
@@ -295,7 +299,7 @@ class PostgresIngestor:
             "pdf_cdn_url": pdf_cdn_url,
         }
 
-    def ingest_directory(self, dir_path: Path, force: bool = False) -> dict[str, Any]:
+    def ingest_directory(self, dir_path: Path) -> dict[str, Any]:
         """
         Recursively ingests all paper JSON files inside a directory into PostgreSQL.
         Ensures Question Papers are ingested before Mark Schemes to maintain logical consistency.
@@ -306,6 +310,8 @@ class PostgresIngestor:
 
         # Ensure schema tables and indexes exist
         self.db.init_schema()
+
+        started_at = datetime.utcnow()
 
         all_json = list(dir_path.glob("**/*.json"))
         # Exclude manifest files (manifest.json, scrape_manifest.json, etc.)
@@ -327,7 +333,7 @@ class PostgresIngestor:
 
         for jf in sorted_jsons:
             try:
-                res = self.ingest_paper_json(jf, force=force)
+                res = self.ingest_paper_json(jf)
                 successful_papers += 1
                 total_questions += res.get("questions_ingested", 0)
                 total_answers += res.get("answers_ingested", 0)
@@ -335,6 +341,44 @@ class PostgresIngestor:
             except Exception as e:
                 logger.error(f"Failed to ingest {jf.name} into PostgreSQL: {e}")
                 failed_papers.append({"file": jf.name, "error": str(e)})
+
+        completed_at = datetime.utcnow()
+
+        # Log this pipeline run in pipeline_runs table
+        subject_codes = list({
+            jf.name.split("_")[0] for jf in sorted_jsons
+            if jf.name and jf.name[0].isdigit()
+        })
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO pipeline_runs
+                            (stage, subject_code, year, status, details, started_at, completed_at)
+                        VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
+                        """,
+                        (
+                            "ingest_directory",
+                            ",".join(subject_codes) if subject_codes else None,
+                            None,
+                            "completed" if not failed_papers else "completed_with_errors",
+                            json.dumps({
+                                "dir": str(dir_path),
+                                "total_files": len(sorted_jsons),
+                                "successful_papers": successful_papers,
+                                "failed_papers": len(failed_papers),
+                                "total_questions": total_questions,
+                                "total_answers": total_answers,
+                                "total_visuals": total_visuals,
+                                "failures": failed_papers,
+                            }),
+                            started_at,
+                            completed_at,
+                        ),
+                    )
+        except Exception as e:
+            logger.warning(f"Could not log pipeline run: {e}")
 
         return {
             "total_files": len(sorted_jsons),
@@ -345,3 +389,4 @@ class PostgresIngestor:
             "total_visuals": total_visuals,
             "failures": failed_papers,
         }
+

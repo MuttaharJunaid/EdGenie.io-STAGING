@@ -1,8 +1,8 @@
 """
 Stage 3 — Visual Extraction Module
 """
-from pipeline.visuals.extractor import CambridgeVisualExtractor
+from pipeline.visuals.unstructured_extractor import UnstructuredVisualExtractor
 
 __all__ = [
-    "CambridgeVisualExtractor",
+    "UnstructuredVisualExtractor",
 ]

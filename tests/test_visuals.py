@@ -761,3 +761,359 @@ class TestTableVisualExtraction:
             f"Fig 2.1 regression: expected 1 visual on page 3, found {len(p3_entries)}: {p3_entries}")
         assert "Fig_2_1" in p3_entries[0]["filename"], (
             f"Fig 2.1 regression: expected Fig_2_1 on page 3, got {p3_entries[0]['filename']}")
+
+    def test_5090_s10_qp_11_mcq_fixes_regression(self, tmp_path):
+        """Regression test for 7 visual extraction issues on 5090_s10_qp_11 MCQ paper."""
+        pdf_path = Path("pipeline/storage/5090/2010/jun/5090_s10_qp_11.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_s10_qp_11.pdf not found in storage.")
+
+        output_dir = tmp_path / "s10_11_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir)
+
+        def get_visual(fname):
+            match = next((m for m in manifest if m["filename"] == fname), None)
+            assert match is not None, f"Expected visual {fname} was not extracted!"
+            assert (output_dir / fname).exists(), f"Extracted file {fname} not found on disk!"
+            return match
+
+        # Issue 1: Page 8 Question 12 - no text bleed from next question (Q12 stem/results at y~456, prompt at y~627)
+        q12_1 = get_visual("p8_q12_question_mcq_1.png")
+        assert q12_1["bbox"][3] < 450.0, f"Q12_1 bleeds into text below: {q12_1['bbox']}"
+        q12_2 = get_visual("p8_q12_question_mcq_2.png")
+        assert q12_2["bbox"][3] < 625.0, f"Q12_2 bleeds into prompt below: {q12_2['bbox']}"
+
+        # Issue 2: Page 2 Question 1 - embedded raster micrograph must be extracted
+        q1 = get_visual("p2_q1_question_mcq_1.png")
+        assert q1["question"] == 1 and q1["page"] == 2
+
+        # Issue 3: Page 4 Q4 and Page 14 Q23 - question prose tails excluded from crop
+        q4 = get_visual("p4_q4_question_mcq_1.png")
+        assert q4["bbox"][1] > 105.0, f"Q4 table includes prose line: {q4['bbox']}"
+        q23 = get_visual("p14_q23_question_mcq_1.png")
+        assert q23["bbox"][3] < 355.0, f"Q23 diagram includes prompt line: {q23['bbox']}"
+
+        # Issue 4: Diagram and table separated across intervening prompt
+        q7_entries = [m for m in manifest if m.get("question") == 7]
+        assert len(q7_entries) == 2, f"Q7 diagram and table must be separate visuals, got {len(q7_entries)}"
+        get_visual("p6_q7_question_mcq_1.png")
+        get_visual("p6_q7_question_mcq_2.png")
+
+        q14_entries = [m for m in manifest if m.get("question") == 14]
+        assert len(q14_entries) == 2, f"Q14 diagram and table must be separate visuals, got {len(q14_entries)}"
+        get_visual("p10_q14_question_mcq_1.png")
+        get_visual("p10_q14_question_mcq_2.png")
+
+        q29 = get_visual("p17_q29_question_mcq_1.png")
+        assert q29["bbox"][1] > 360.0 and q29["bbox"][3] < 525.0, f"Q29 food web bounds incorrect: {q29['bbox']}"
+
+        q24_2 = get_visual("p15_q24_question_mcq_2.png")
+        assert q24_2["bbox"][1] > 360.0, f"Q24 table includes prompt above: {q24_2['bbox']}"
+
+        q40 = get_visual("p20_q40_question_mcq_1.png")
+        assert q40["bbox"][1] > 560.0 and q40["bbox"][3] < 660.0, f"Q40 table bounds incorrect: {q40['bbox']}"
+
+        # Issue 5: Page 9 Question 13 - multi-line label 'sugar eaten' fully included
+        q13 = get_visual("p9_q13_question_mcq_1.png")
+        assert q13["bbox"][3] >= 311.0, f"Q13 'sugar eaten' label cut off: {q13['bbox']}"
+
+        # Issue 6: Page 16 Question 25 - plain text options must NOT be extracted as phantom image
+        q25_entries = [m for m in manifest if m.get("question") == 25]
+        assert len(q25_entries) == 1, f"Q25 expected 1 visual (diagram), found {len(q25_entries)}"
+        assert q25_entries[0]["filename"] == "p16_q25_question_mcq_1.png"
+        assert not (output_dir / "p16_q25_question_mcq_2.png").exists()
+
+        # Issue 7: Page 19 Question 36 - scissor clipping prevents previous question (Q35) text bleed
+        q36 = get_visual("p19_q36_question_mcq_1.png")
+        assert q36["bbox"][1] >= 380.0, f"Q36 bleeds into Q35 above: {q36['bbox']}"
+
+    def test_5090_s11_qp_22_fig_5_1_subfigures_unified(self, tmp_path):
+        """Regression test: 5090_s11_qp_22 Page 7 Question 5 sub-figures Fig. 5.1(a) and 5.1(b) must be merged into a single complete visual."""
+        pdf_path = Path("pipeline/storage/5090/2011/jun/5090_s11_qp_22.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_s11_qp_22.pdf not found in storage.")
+
+        output_dir = tmp_path / "s11_22_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=False)
+
+        # Page 7 check: Exactly 1 visual for Q5 (unified Fig 5.1)
+        p7_entries = [m for m in manifest if m.get("page") == 7]
+        assert len(p7_entries) == 1, f"Expected exactly 1 visual on page 7, found {len(p7_entries)}: {p7_entries}"
+
+        f51 = p7_entries[0]
+        assert f51["filename"] == "p7_q5_question_Fig_5_1.png"
+        assert (output_dir / f51["filename"]).exists(), f"File {f51['filename']} missing on disk!"
+        assert "Fig. 5.1(a)" in f51["caption"] and "Fig. 5.1(b)" in f51["caption"]
+
+        bbox = f51["bbox"]
+        # Must include left y-axis label ('pulse/beats per minute' at x~44)
+        assert bbox[0] <= 45.0, f"Left edge trimmed (missing pulse axis label): {bbox[0]} > 45.0"
+        # Must include right graph grid and x-axis (x1 >= 540)
+        assert bbox[2] >= 540.0, f"Right edge trimmed: {bbox[2]} < 540.0"
+        # Must include top of graph grids (y0 <= 100)
+        assert bbox[1] <= 100.0, f"Top edge trimmed: {bbox[1]} > 100.0"
+        # Must include captions at bottom (y1 >= 345) and not include part (a) at y=365
+        assert 345.0 <= bbox[3] <= 360.0, f"Bottom edge incorrect: {bbox[3]}"
+        # Width must be wide enough to span both graphs (> 450 pt)
+        assert bbox[2] - bbox[0] >= 480.0, f"Width too small (graphs not unified): {bbox[2] - bbox[0]}"
+
+    def test_5090_w11_qp_11_mcq_fixes_regression(self, tmp_path):
+        """
+        Regression test: 5090_w11_qp_11.pdf MCQ visual extraction fixes:
+        - Page 4 Q6 (p4_q6_question_mcq_1): Question stem text above test tubes must NOT be included in crop.
+        - Page 6 Q10 (p6_q10_question_mcq_1): Labels A and B above the photomicrograph must be fully included.
+        """
+        pdf_path = Path("pipeline/storage/5090/2011/nov/5090_w11_qp_11.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_w11_qp_11.pdf not found in storage.")
+
+        output_dir = tmp_path / "w11_11_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir, force_mcq=True)
+
+        def get_visual(filename: str) -> dict:
+            match = next((m for m in manifest if m["filename"] == filename), None)
+            assert match is not None, f"Visual {filename} missing in manifest!"
+            assert (output_dir / filename).exists(), f"Visual {filename} missing on disk!"
+            return match
+
+        # Issue 1: Page 4 Question 6 visual 1 (test tubes P and Q)
+        # Diagram artwork starts around y=476, with labels 'black lightproof cover' at y~472.9.
+        # Question 6 stem prose ('Two test-tubes, P and Q, were set up each...') sits at y=350-450.
+        # It must NOT be included in the crop (y0 >= 460.0).
+        q6_1 = get_visual("p4_q6_question_mcq_1.png")
+        assert q6_1["bbox"][1] >= 460.0, (
+            f"p4_q6_question_mcq_1 includes question stem text above: y0={q6_1['bbox'][1]} < 460.0"
+        )
+        assert q6_1["bbox"][3] >= 620.0, (
+            f"p4_q6_question_mcq_1 missing bottom labels 'tube P'/'tube Q': y1={q6_1['bbox'][3]} < 620.0"
+        )
+
+        # Issue 2: Page 6 Question 10 visual 1 (blood photomicrograph)
+        # Photomicrograph image sits at y~453-628.
+        # Labels A and B sit above the micrograph at y0=420.1 with pointer lines extending to them.
+        # The crop must include labels A and B (y0 <= 425.0) and bottom label 'magnification ×1000' (y1 >= 680.0).
+        q10_1 = get_visual("p6_q10_question_mcq_1.png")
+        assert q10_1["bbox"][1] <= 425.0, (
+            f"p6_q10_question_mcq_1 missing labels A and B above micrograph: y0={q10_1['bbox'][1]} > 425.0"
+        )
+        assert q10_1["bbox"][3] >= 680.0, (
+            f"p6_q10_question_mcq_1 missing magnification label below micrograph: y1={q10_1['bbox'][3]} < 680.0"
+        )
+
+    def test_5090_s25_qp_22_fig_4_1_prose_excluded(self, tmp_path):
+        """Regression test: Fig 4.1 in 5090_s25_qp_22 must exclude prompt prose and top barcode."""
+        pdf_path = Path("pipeline/storage/5090/2025/jun/5090_s25_qp_22.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_s25_qp_22.pdf not found in storage.")
+
+        output_dir = tmp_path / "s25_22_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir)
+
+        fig4_entry = next((m for m in manifest if "p10_q4_question_Fig_4_1" in m["filename"]), None)
+        assert fig4_entry is not None, f"Expected p10_q4_question_Fig_4_1 visual in manifest, got {manifest}"
+        assert (output_dir / fig4_entry["filename"]).exists()
+
+        bbox = fig4_entry["bbox"]
+        # Question stem prose sits at y=63.8-87.8 pt and barcode at y~40 pt.
+        # Crop upper bound must start below the prose line (y0 >= 85 pt) and near diagram top (y0 <= 110 pt).
+        assert bbox[1] >= 85.0, f"Fig 4.1 includes question prompt prose or barcode: y0={bbox[1]:.1f} < 85.0"
+        assert bbox[1] <= 110.0, f"Fig 4.1 diagram cropped too low: y0={bbox[1]:.1f} > 110.0"
+        assert bbox[3] >= 315.0, f"Fig 4.1 caption missing or cropped: y1={bbox[3]:.1f} < 315.0"
+
+    def test_5090_s25_qp_11_mcq_fixes_regression(self, tmp_path):
+        """Regression test for 5090_s25_qp_11 MCQ paper: Q2 cell membrane label & Q8 A-D labels."""
+        pdf_path = Path("pipeline/storage/5090/2025/jun/5090_s25_qp_11.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_s25_qp_11.pdf not found in storage.")
+
+        output_dir = tmp_path / "s25_11_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir)
+
+        def get_visual(fname):
+            match = next((m for m in manifest if m["filename"] == fname), None)
+            assert match is not None, f"Expected visual {fname} not found in manifest!"
+            assert (output_dir / fname).exists(), f"File {fname} not found on disk!"
+            return match
+
+        # Issue 2: Page 2 Question 2 visual 1 (red blood cell diagram)
+        # Top label "cell membrane" sits at y0=374.4 with pointer line up to y=385.7.
+        # Must be preserved (y0 <= 378.0), not cut off at drawing y0=402.5.
+        q2_1 = get_visual("p2_q2_question_mcq_1.png")
+        assert q2_1["bbox"][1] <= 378.0, (
+            f"p2_q2_question_mcq_1 missing top label 'cell membrane': y0={q2_1['bbox'][1]} > 378.0"
+        )
+        assert q2_1["bbox"][3] >= 465.0, (
+            f"p2_q2_question_mcq_1 cut off at bottom: y1={q2_1['bbox'][3]} < 465.0"
+        )
+
+        # Issue 3: Page 5 Question 8 visual 2 (substrate shapes)
+        # Labels A, B, C, D sit at y0=165.9 above shapes at y0=192.8.
+        # Must be preserved (y0 <= 170.0), not cut off at shape y0=192.8.
+        q8_2 = get_visual("p5_q8_question_mcq_2.png")
+        assert q8_2["bbox"][1] <= 170.0, (
+            f"p5_q8_question_mcq_2 missing labels A, B, C, D: y0={q8_2['bbox'][1]} > 170.0"
+        )
+        assert q8_2["bbox"][3] >= 215.0, (
+            f"p5_q8_question_mcq_2 cut off at bottom: y1={q8_2['bbox'][3]} < 215.0"
+        )
+
+    def test_7110_s18_qp_22_complete_tabular_formatting_only(self, tmp_path):
+        """
+        Regression test for 7110_s18_qp_22.pdf:
+        1. Blank answer spaces ("columns without rows", repeated dotted lines) must NOT be extracted:
+           - p6_q2_part_c_diagram_1
+           - p18_q5_part_a_diagram_1
+           - p20_q5_part_b_diagram_2
+           - p21_q5_part_b_diagram_3
+        2. Tables without complete rows and columns must NOT be extracted:
+           - Page 8 Table 1: Receipts and Payments (borderless text)
+           - Page 8 Table 2: Balances at (borderless text)
+           - Page 12 Table 1: Balances of Dharma (borderless text)
+           - Page 16 Table 1: Trial Balance of Boris (borderless text)
+        3. Only visuals with complete tabular formatting (explicit rows and columns) are extracted:
+           - p2_q1_question_diagram_1.png
+           - p2_q1_question_Table_1.png
+           - p2_q1_part_a_Table_2.png
+           - p4_q1_part_d_Table_3.png
+           - p4_q1_part_e_Table_4.png
+           - p7_q2_part_d_Table_1.png
+           - p13_q4_part_b_Table_1.png
+           - p14_q4_part_d_Table_2.png
+        """
+        pdf_path = Path("pipeline/storage/7110/2018/jun/7110_s18_qp_22.pdf")
+        if not pdf_path.exists():
+            pytest.skip("7110_s18_qp_22.pdf not found in storage.")
+
+        output_dir = tmp_path / "7110_s18_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir)
+        filenames = {m["filename"] for m in manifest}
+
+        # 1. Blank answer workspaces ("columns without rows") must be suppressed
+        for suppressed in [
+            "p6_q2_part_c_diagram_1.png",
+            "p18_q5_part_a_diagram_1.png",
+            "p20_q5_part_b_diagram_2.png",
+            "p21_q5_part_b_diagram_3.png",
+        ]:
+            assert suppressed not in filenames, f"Blank workspace {suppressed} was incorrectly extracted!"
+
+        # 2. Borderless tables (without borders/grid lines) and single-column lists must NOT be extracted
+        for borderless in [
+            "p8_q3_question_Table_1.png",
+            "p8_q3_question_Table_2.png",
+            "p12_q4_question_Table_1.png",
+            "p16_q5_question_Table_1.png",
+        ]:
+            assert borderless not in filenames, f"Borderless table {borderless} was incorrectly extracted!"
+
+        # 3. Only visuals with complete tabular formatting (bordered tables) must be extracted as Table
+        expected_tables = [
+            "p2_q1_question_Table_1.png",
+            "p2_q1_part_a_Table_2.png",
+            "p4_q1_part_d_Table_3.png",
+            "p4_q1_part_e_Table_4.png",
+            "p7_q2_part_d_Table_1.png",
+            "p13_q4_part_b_Table_1.png",
+            "p14_q4_part_d_Table_2.png",
+        ]
+        for expected in expected_tables:
+            assert expected in filenames, f"Bordered table with complete tabular formatting {expected} was missing!"
+
+        for m in manifest:
+            assert m["caption"] == "Table", f"Visual {m['filename']} was classified as {m['caption']} instead of Table"
+
+        assert len(manifest) == 7, f"Expected exactly 7 bordered tables, got {len(manifest)}"
+
+    def test_5090_w19_qp_22_all_visuals_complete(self, tmp_path: Path):
+        """
+        Verify that 5090_w19_qp_22 extracts all 10 visuals completely:
+        1. Page 4 genetic diagram contains all parental labels, gamete circles, and genotype fill-ins (y0 <= 165).
+        2. Page 8 graph of reported syphilis cases is extracted (with axes 1995-2012).
+        3. Page 11 diagram captures the absorption surface captions below the artwork (y1 >= 335).
+        4. Total of 10 visuals extracted across the entire paper.
+        """
+        pdf_path = Path("pipeline/storage/5090/2019/nov/5090_w19_qp_22.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_w19_qp_22.pdf not found in storage.")
+
+        output_dir = tmp_path / "5090_w19_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir)
+        by_name = {m["filename"]: m for m in manifest}
+
+        # 1. Total count
+        assert len(manifest) == 10, f"Expected exactly 10 visuals, got {len(manifest)}: {list(by_name.keys())}"
+
+        # 2. Page 8 graph must not be dropped by right-margin filtering
+        assert "p8_q3_part_c_diagram_3.png" in by_name, "Page 8 syphilis cases graph missing from manifest!"
+        p8_meta = by_name["p8_q3_part_c_diagram_3.png"]
+        assert p8_meta["page"] == 8
+        assert p8_meta["question"] == 3
+        assert p8_meta["part"] == "c"
+        # Bounding box should span full graph axes from x0 <= 45 to x1 >= 540
+        assert p8_meta["bbox"][0] <= 45.0
+        assert p8_meta["bbox"][2] >= 540.0
+
+        # 3. Page 4 genetic diagram must not be truncated to inner cells
+        assert "p4_q1_sub_part_c(ii)_Table_1.png" in by_name, "Page 4 genetic diagram missing from manifest!"
+        p4_meta = by_name["p4_q1_sub_part_c(ii)_Table_1.png"]
+        assert p4_meta["page"] == 4
+        assert p4_meta["question"] == 1
+        assert p4_meta["part"] == "c(ii)"
+        # Should include top parental labels (y0 <= 165) and left parental labels (x0 <= 135)
+        assert p4_meta["bbox"][1] <= 165.0, f"Page 4 top labels cut off: y0={p4_meta['bbox'][1]}"
+        assert p4_meta["bbox"][0] <= 135.0, f"Page 4 left labels cut off: x0={p4_meta['bbox'][0]}"
+
+        # 4. Page 11 diagram must include the absorption surface captions below the artwork
+        assert "p11_q4_part_b_diagram_1.png" in by_name, "Page 11 diagram missing from manifest!"
+        p11_meta = by_name["p11_q4_part_b_diagram_1.png"]
+        assert p11_meta["page"] == 11
+        assert p11_meta["question"] == 4
+        assert p11_meta["part"] == "b"
+        # Should include captions below artwork (y1 >= 335)
+        assert p11_meta["bbox"][3] >= 335.0, f"Page 11 captions cut off: y1={p11_meta['bbox'][3]}"
+
+    def test_5090_s16_qp_22_table_2_1_unbroken(self, tmp_path: Path):
+        """
+        Verify that 5090_s16_qp_22 Table 2.1 on Page 5 is extracted completely:
+        1. Table 2.1 is not cut off by cell prose descriptions (y1 >= 545.0, all 5 rows).
+        2. No fragmented/orphaned 'Table_2' visual is generated on Page 5.
+        3. Exactly 2 visuals on Page 5: Fig. 2.1 and Table 2.1.
+        """
+        pdf_path = Path("pipeline/storage/5090/2016/jun/5090_s16_qp_22.pdf")
+        if not pdf_path.exists():
+            pytest.skip("5090_s16_qp_22.pdf not found in storage.")
+
+        output_dir = tmp_path / "5090_s16_visuals"
+        extractor = CambridgeVisualExtractor(dpi=150)
+        manifest = extractor.extract(pdf_path, output_dir)
+        by_name = {m["filename"]: m for m in manifest}
+
+        # 1. Table 2.1 must be extracted completely
+        assert "p5_q2_part_a_Table_2_1.png" in by_name, "Table 2.1 missing from manifest!"
+        t21 = by_name["p5_q2_part_a_Table_2_1.png"]
+        assert t21["page"] == 5
+        assert t21["question"] == 2
+        assert t21["part"] == "a"
+        assert t21["caption"] == "Table 2.1"
+        # Bounding box must span from upper caption down to bottom of table grid (y1 >= 545.0)
+        assert t21["bbox"][1] <= 370.0, f"Table 2.1 upper caption cut off: y0={t21['bbox'][1]}"
+        assert t21["bbox"][3] >= 545.0, f"Table 2.1 lower rows cut off: y1={t21['bbox'][3]}"
+
+        # 2. No duplicate or fragmented Table_2 should exist on Page 5
+        assert "p5_q2_part_a_Table_2.png" not in by_name, "Fragmented Table_2 was incorrectly created on Page 5!"
+
+        # 3. Only Fig 2.1 and Table 2.1 on Page 5
+        p5_visuals = [m for m in manifest if m["page"] == 5]
+        assert len(p5_visuals) == 2, f"Expected 2 visuals on Page 5, got {len(p5_visuals)}: {[m['filename'] for m in p5_visuals]}"
+
+
+
+
+

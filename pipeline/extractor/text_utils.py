@@ -8,7 +8,15 @@ answer-prompt stripping.  These helpers are used by both the layout extractor
 
 import re
 
-from pipeline.visuals.extractor import SUPERSCRIPT_MAP
+# Mathematical superscript/subscript character mapping.
+# Relocated here from pipeline.visuals.extractor (deprecated legacy module) so
+# that Stage 2 text processing has no dependency on the legacy visual extractor.
+SUPERSCRIPT_MAP = {
+    '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+    '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    '+': '⁺', '-': '⁻', '–': '⁻', '—': '⁻', '=': '⁼',
+    '(': '⁽', ')': '⁾', 'n': 'ⁿ', 'i': 'ⁱ', 'x': 'ˣ', 'y': 'ʸ',
+}
 
 # Strip trailing answer-prompt strings like "change =", "height =", "V2 =",
 # "water:", "Answer (a) ..." from question prose.

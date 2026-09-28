@@ -69,8 +69,7 @@ def db_stats(
 @app.command(name="db-paper")
 def db_paper(
     json_path: str = typer.Option(..., "--json", "-j", help="Path to Stage 2 paper JSON file"),
-    force: bool = typer.Option(False, "--force", "-f", help="Force re-ingestion"),
-    uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
+    uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI (defaults to POSTGRES_URI or DATABASE_URL)"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
     """Ingest a single paper JSON and its visual manifest into PostgreSQL."""
@@ -84,7 +83,7 @@ def db_paper(
     ingestor = PostgresIngestor(db_client=db_client)
 
     try:
-        result = ingestor.ingest_paper_json(j_path, force=force)
+        result = ingestor.ingest_paper_json(j_path)
         console.print(f"[bold green]Ingested Paper into PostgreSQL:[/bold green] {result.get('paper_code')}")
         console.print(f"  Category:           [cyan]{result.get('category')}[/cyan]")
         console.print(f"  Questions Ingested: [yellow]{result.get('questions_ingested')}[/yellow]")
@@ -99,7 +98,6 @@ def db_paper(
 @app.command(name="db-dir")
 def db_dir(
     directory_path: str = typer.Option(..., "--dir", "-d", help="Directory containing Stage 2 JSON files"),
-    force: bool = typer.Option(False, "--force", "-f", help="Force re-ingestion"),
     uri: str | None = typer.Option(None, "--uri", "-u", help="PostgreSQL connection URI"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
@@ -114,7 +112,7 @@ def db_dir(
     ingestor = PostgresIngestor(db_client=db_client)
 
     try:
-        result = ingestor.ingest_directory(d_path, force=force)
+        result = ingestor.ingest_directory(d_path)
         console.print("\n[bold green]Directory Ingestion Finished![/bold green]")
         console.print(f"  Total JSON Papers Found: [cyan]{result.get('total_files')}[/cyan]")
         console.print(f"  Successfully Ingested:   [green]{result.get('successful_papers')}[/green]")
@@ -184,7 +182,7 @@ def storage_dir(
     console.print(table)
 
 
-# ── Full Automation / Legacy Aliases ──────────────────────────────────────────
+# ── Full Automation ────────────────────────────────────────────────────────────
 
 @app.command(name="full-sync")
 def full_sync(
@@ -216,16 +214,16 @@ def full_sync(
 
 # Backward-compatible command aliases
 @app.command(name="ingest-paper", hidden=True)
-def ingest_paper_alias(json_path: str = typer.Option(..., "--json", "-j"), force: bool = False):
-    db_paper(json_path=json_path, force=force)
+def ingest_paper_alias(json_path: str = typer.Option(..., "--json", "-j")):
+    db_paper(json_path=json_path)
 
 @app.command(name="ingest-dir", hidden=True)
-def ingest_dir_alias(directory_path: str = typer.Option(..., "--dir", "-d"), force: bool = False):
-    db_dir(directory_path=directory_path, force=force)
+def ingest_dir_alias(directory_path: str = typer.Option(..., "--dir", "-d")):
+    db_dir(directory_path=directory_path)
 
 @app.command(name="sync-storage", hidden=True)
-def sync_storage_alias(storage_dir: str = typer.Option("pipeline/storage", "--dir", "-d")):
-    storage_dir(storage_dir=storage_dir)
+def sync_storage_alias(storage_dir_path: str = typer.Option("pipeline/storage", "--dir", "-d")):
+    storage_dir(storage_dir=storage_dir_path)
 
 
 def _print_stats_table(stats: dict) -> None:

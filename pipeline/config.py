@@ -37,6 +37,10 @@ class PipelineSettings(BaseSettings):
     openrouter_model: str = "google/gemini-2.5-flash"
     gemini_classification_model: str = "gemini-2.5-flash"
 
+    # Stage 3 — Visual Extraction (Unstructured.io)
+    unstructured_api_key: str | None = None
+    unstructured_server_url: str = "https://transform.unstructured.io"
+
     model_config = {
         "env_prefix": "EDGENIE_",
         "env_file": ".env",

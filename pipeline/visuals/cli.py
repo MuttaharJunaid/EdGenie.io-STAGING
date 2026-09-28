@@ -19,10 +19,10 @@ from rich.table import Table
 dotenv.load_dotenv()
 
 from pipeline.config import settings
-from pipeline.visuals.extractor import CambridgeVisualExtractor
 from pipeline.visuals.manifest_patcher import patch_records_with_manifest
+from pipeline.visuals.unstructured_extractor import UnstructuredVisualExtractor
 
-app = typer.Typer(help="EdGenie Stage 3 — Visual Extraction CLI (Cambridge Layout-Anchored)")
+app = typer.Typer(help="EdGenie Stage 3 — Visual Extraction CLI (Unstructured.io API Backend)")
 console = Console()
 
 
@@ -41,8 +41,9 @@ def extract_visuals_for_pdf(
     json_path: Path | None = None,
     force: bool = False,
     dpi: int = 300,
-    min_vector_area: float = 400.0,
     paper_type: str | None = None,
+    legacy: bool = False,
+    extract_tables: bool = True,
 ) -> list[dict[str, Any]] | None:
     """
     Core extraction function for a single PDF.
@@ -71,10 +72,9 @@ def extract_visuals_for_pdf(
         )
         return None
 
-    console.print(f"\n[bold blue]Stage 3: Cambridge Visual Extraction — {pdf.name}[/bold blue]")
+    backend_label = "Legacy PyMuPDF" if legacy else "Unstructured.io API"
+    console.print(f"\n[bold blue]Stage 3: Cambridge Visual Extraction ({backend_label}) — {pdf.name}[/bold blue]")
 
-    # Run extraction
-    extractor = CambridgeVisualExtractor(dpi=dpi, min_vector_area=min_vector_area)
     force_mcq: bool | None = None
     if paper_type:
         pt_norm = paper_type.strip().lower()
@@ -87,8 +87,21 @@ def extract_visuals_for_pdf(
         else:
             console.print(f"[yellow]Warning: unrecognized paper type override '{paper_type}'. Valid values: 'essay', 'mcq'.[/yellow]")
 
-    with console.status("[bold green]Extracting figures and diagrams..."):
-        manifest = extractor.extract(pdf, visuals_dir, force_mcq=force_mcq)
+    if legacy:
+        # Lazy import — only loaded when --legacy is explicitly requested
+        from pipeline.visuals.extractor import CambridgeVisualExtractor
+        extractor = CambridgeVisualExtractor(dpi=dpi)
+        with console.status("[bold green]Extracting figures and diagrams (Legacy Engine)..."):
+            manifest = extractor.extract(pdf, visuals_dir, force_mcq=force_mcq)
+    else:
+        extractor = UnstructuredVisualExtractor(
+            dpi=dpi,
+            extract_tables=extract_tables,
+        )
+        with console.status("[bold green]Extracting figures and tables via Unstructured.io API..."):
+            manifest = extractor.extract(
+                pdf, visuals_dir, force_mcq=force_mcq, force_refresh=force
+            )
 
     if not manifest:
         console.print("[yellow]No visual figures detected in this paper.[/yellow]")
@@ -148,7 +161,8 @@ def extract(
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing visuals/"),
     dpi: int = typer.Option(300, "--dpi", help="Render resolution DPI (default: 300)"),
-    min_vector_area: float = typer.Option(400.0, "--min-vector-area", help="Minimum vector cluster area"),
+    legacy: bool = typer.Option(False, "--legacy/--no-legacy", help="Use legacy PyMuPDF extraction engine instead of Unstructured.io API"),
+    tables: bool = typer.Option(True, "--tables/--no-tables", help="Extract tabular figures alongside images"),
     log_level: str = typer.Option(settings.log_level, "--log-level"),
 ):
     """Extract figures, graphs, tables and diagrams from a single exam PDF."""
@@ -160,8 +174,9 @@ def extract(
         json_path=j_path,
         force=force,
         dpi=dpi,
-        min_vector_area=min_vector_area,
         paper_type=paper_type or type,
+        legacy=legacy,
+        extract_tables=tables,
     )
     if result is None and not force and (pdf.parent / pdf.stem).exists():
         raise typer.Exit(code=0)
@@ -174,7 +189,8 @@ def extract_dir(
     type: str | None = typer.Option(None, "--type", "-t", help="Paper type override: 'essay' or 'mcq'"),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing visuals"),
     dpi: int = typer.Option(300, "--dpi", help="Render resolution DPI"),
-    min_vector_area: float = typer.Option(400.0, "--min-vector-area", help="Minimum vector cluster area"),
+    legacy: bool = typer.Option(False, "--legacy/--no-legacy", help="Use legacy PyMuPDF extraction engine instead of Unstructured.io API"),
+    tables: bool = typer.Option(True, "--tables/--no-tables", help="Extract tabular figures alongside images"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ):
     """Extract visuals from all question paper PDFs in a directory."""
@@ -203,8 +219,9 @@ def extract_dir(
                 json_path=j_path if j_path.exists() else None,
                 force=force,
                 dpi=dpi,
-                min_vector_area=min_vector_area,
                 paper_type=effective_type,
+                legacy=legacy,
+                extract_tables=tables,
             )
             if res is not None:
                 done += 1
@@ -233,13 +250,10 @@ def _patch_question_json(json_path: Path, manifest: list[dict[str, Any]]) -> Non
 
     patched = patch_records_with_manifest(records, manifest)
 
-
-
     if patched:
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(records, f, indent=2)
         console.print(f"  Patched image fields in [green]{json_path.name}[/green] ({patched} entries).")
-
 
 
 if __name__ == "__main__":

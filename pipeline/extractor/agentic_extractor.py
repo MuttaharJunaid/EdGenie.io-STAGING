@@ -161,6 +161,7 @@ Before outputting the final JSON response, perform a mandatory verification chec
 7. Newlines & Indentation Check: Confirm that distinct paragraphs are separated by "\\n\\n" and not flattened into single-line strings. Confirm that indented lists or procedures retain their leading spaces and line breaks ("\\n").
 8. Question Stem vs Part (a) Boundary Check: Confirm that ALL text, experimental setups, and background descriptions preceding label '(a)' are in "Question_text", and NOT in part (a)'s "part_text".
 9. Diagram & Table Labels Check: Confirm that NO diagram callouts, pointer labels, or annotations shown near a diagram or table (e.g., 'radicle', 'cork base', 'direction of movement') are transcribed into Question_text, part_text, or sub_part_text.
+10. Standalone Financial Table Check: Confirm that NO standalone financial or data table (e.g. a full partner capital account, balance sheet, trial balance, income statement, ledger T-account, or any titled multi-column numeric block) has been transcribed as text into any field. Only the surrounding question instructions referencing those tables should appear in the text fields.
 """
 
     MARKS_INSTRUCTIONS = """
@@ -224,6 +225,14 @@ Cambridge examination papers — especially Accounts, Business, Economics, and S
 7. PLAIN PROSE — If the content is genuinely a sentence or paragraph (not columnar data), leave it as plain text. Do NOT force non-tabular content into a table.
 
 8. CONSISTENCY — Apply these rules to Question_text, part_text, sub_part_text, Answer_text, and part_answer fields equally. Tabular data in any field must always be a markdown pipe table.
+
+9. STANDALONE FINANCIAL & DATA TABLES — DO NOT EXTRACT AS TEXT:
+   Accounts, Business, and Commerce papers frequently print large standalone financial tables as part of the question context (e.g. a full partner capital account, a complete balance sheet, a detailed trial balance, a profit & loss statement). These are VISUAL elements that will be captured separately as images.
+   - DO NOT transcribe the rows, columns, or cell values of these standalone financial tables into Question_text, part_text, or sub_part_text.
+   - Only extract the surrounding QUESTION TEXT that asks the candidate to do something (e.g. "Using the information in the table above, prepare the income statement.", "Refer to the balance sheet below and answer the following:").
+   - A standalone financial table is one that occupies its own visual block, has its own title (e.g. "Partner Capital Accounts", "Trial Balance as at 31 December 2023"), and is NOT itself a question sentence.
+   - This rule applies equally to: ledger T-accounts, cash flow statements, ratio tables, comparative financial summaries, and any multi-column numeric block printed as reference data for the candidate.
+   - Exception: If a question ASKS you to complete a partially-filled table (e.g. "Complete the table below"), extract only the table HEADERS and any pre-filled cells in markdown pipe format, leaving blank cells as empty pipes (| |). Do NOT fabricate or fill in the answers.
 """
 
     def _build_extraction_prompt(
@@ -782,18 +791,6 @@ CRITICAL RULES:
             raise last_err
         return []
 
-    def _extract_page(
-        self,
-        doc: fitz.Document,
-        pno: int,
-        total_pages: int,
-        category: PaperCategory,
-        meta: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        """Extract a single page with Gemini."""
-        schema, prompt = self._get_page_prompt(category, pno, total_pages, meta)
-        logger.info(f"Extracting page {pno + 1}/{total_pages} with Gemini ({self.model_name})...")
-        return self._extract_page_with_gemini(doc, pno, schema, prompt)
 
     # ── Post-Processors ───────────────────────────────────────────────────
 

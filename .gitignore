@@ -51,4 +51,6 @@ docker-compose.override.yml
 *.tmp
 scratch/
 scratch_rendered.html
+.unstructured_cache/
+tmp/
 

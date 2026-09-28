@@ -168,22 +168,28 @@ def test_answer_prompt_cleanup_and_preservation():
 
 def test_cli_paper_type_override(tmp_path):
     """Verify that paper_type parameter overrides category on the Essay/MCQ axis for both QP and MS."""
+    import pymupdf as fitz
     from pipeline.extractor.agentic_extractor import AgenticExtractor
     from pipeline.extractor.cli import extract_single
 
-    # Test with real 4024 paper (normally detected as ESSAY_QP)
-    pdf_path = Path("pipeline/storage/4024/2010/jun/4024_s10_qp_11.pdf")
-    if pdf_path.exists():
-        with patch.object(AgenticExtractor, "extract", return_value=[{"QuestionNumber": "Q1", "Question_text": "test", "Marks": 1}]):
-            # Override to essay
-            res_essay = extract_single(pdf_path, force=True, paper_type="essay")
-            assert res_essay is not None
-            assert res_essay[2] == PaperCategory.ESSAY_QP
+    # Build a minimal synthetic QP PDF in tmp_path (avoids dependency on gitignored storage/)
+    pdf_path = tmp_path / "4024_s10_qp_11.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 50), "1  Calculate the force. [3]")
+    doc.save(str(pdf_path))
+    doc.close()
 
-            # Override to mcq
-            res_mcq = extract_single(pdf_path, force=True, paper_type="mcq")
-            assert res_mcq is not None
-            assert res_mcq[2] == PaperCategory.MCQ_QP
+    with patch.object(AgenticExtractor, "extract", return_value=[{"QuestionNumber": "Q1", "Question_text": "test", "Marks": 1}]):
+        # Override to essay
+        res_essay = extract_single(pdf_path, force=True, paper_type="essay")
+        assert res_essay is not None
+        assert res_essay[2] == PaperCategory.ESSAY_QP
+
+        # Override to mcq
+        res_mcq = extract_single(pdf_path, force=True, paper_type="mcq")
+        assert res_mcq is not None
+        assert res_mcq[2] == PaperCategory.MCQ_QP
 
 
 def test_math_signs_and_exponents_normalization():
@@ -334,14 +340,19 @@ def test_agentic_extractor_page_extraction_error_handling():
     mock_doc = fitz.open()
     mock_doc.new_page()
 
+    # _extract_page_with_gemini is the actual method that raises;
+    # _extract_page was a dead wrapper that has been removed.
+    schema, prompt = extractor._get_page_prompt(
+        PaperCategory.ESSAY_QP, 0, 1,
+        meta={"session": "Jun", "variant": "11", "year": "2010"},
+    )
     with patch.object(extractor, "_extract_page_with_gemini", side_effect=Exception("Gemini quota exceeded")):
         with pytest.raises(Exception, match="Gemini quota exceeded"):
-            extractor._extract_page(
+            extractor._extract_page_with_gemini(
                 doc=mock_doc,
                 pno=0,
-                total_pages=1,
-                category=PaperCategory.ESSAY_QP,
-                meta={"session": "Jun", "variant": "11", "year": "2010"},
+                schema=schema,
+                prompt=prompt,
             )
 
 
