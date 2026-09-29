@@ -21,6 +21,7 @@ class PipelineSettings(BaseSettings):
     scraper_max_retries: int = 5
     scraper_timeout: int = 30  # seconds per request
     scraper_user_agent: str = "EdGenie/1.0 (Educational Research Tool)"
+    scraper_watermark_min_year: int = 2026  # Auto-remove PapaCambridge watermarks for papers >= this year
 
     # ── Logging ──
     log_level: str = "INFO"

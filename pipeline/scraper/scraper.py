@@ -11,6 +11,7 @@ from pipeline.config import settings
 from pipeline.scraper.downloader import PDFDownloader
 from pipeline.scraper.models import PaperDocumentType, PaperFileInfo, ScrapeManifest, ScrapeTarget
 from pipeline.scraper.url_builder import URLBuilder
+from pipeline.scraper.watermark_remover import remove_watermark_method3
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +274,22 @@ class PapaCambridgeScraper:
                 _, size_bytes, sha256_hash = self.downloader.download(url, dest_path, force=force)
                 file_info.size_bytes = size_bytes
                 file_info.sha256 = sha256_hash
+
+                # Automatically remove watermarks using Method 3 for papers of year >= 2026
+                paper_year = file_info.year or self.target.year
+                if paper_year is not None and paper_year >= settings.scraper_watermark_min_year:
+                    logger.info(
+                        f"Paper year {paper_year} >= {settings.scraper_watermark_min_year}: "
+                        f"invoking Method 3 watermark removal on {dest_path.name}"
+                    )
+                    cleaned = remove_watermark_method3(dest_path)
+                    if cleaned:
+                        file_info.size_bytes = dest_path.stat().st_size
+                        file_info.sha256 = self.downloader._calculate_sha256(dest_path)
+                        logger.info(
+                            f"Method 3 watermark removal applied in-place for {dest_path.name} "
+                            f"(new size: {file_info.size_bytes:,} bytes)"
+                        )
 
                 downloaded_paths.append(dest_path)
                 manifest_files.append(file_info)

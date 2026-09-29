@@ -53,4 +53,5 @@ scratch/
 scratch_rendered.html
 .unstructured_cache/
 tmp/
+*.pdf
 

@@ -10,6 +10,10 @@ from pipeline.scraper.downloader import PDFDownloader
 from pipeline.scraper.models import PaperDocumentType, PaperFileInfo, ScrapeManifest, ScrapeTarget
 from pipeline.scraper.scraper import PapaCambridgeScraper
 from pipeline.scraper.url_builder import URLBuilder
+from pipeline.scraper.watermark_remover import (
+    clean_paper_watermark_if_eligible,
+    remove_watermark_method3,
+)
 
 __all__ = [
     "ScrapeTarget",
@@ -19,4 +23,6 @@ __all__ = [
     "URLBuilder",
     "PDFDownloader",
     "PapaCambridgeScraper",
+    "remove_watermark_method3",
+    "clean_paper_watermark_if_eligible",
 ]
