@@ -2,6 +2,8 @@
 
 AI-powered past paper analysis, text extraction, visual diagram segmentation, and syllabus classification platform for CAIE O-Level and AS/A-Level students.
 
+EdGenie unifies text extraction, visual figure snipping, and official Cambridge syllabus classification into a single cloud pass powered by the **Unstructured.io Transform API** and **PyMuPDF**, paired with a **PostgreSQL (Relational + JSONB)** ingestion engine and **Firebase Storage CDN** asset pipeline.
+
 ---
 
 ## Installation & Setup
@@ -10,7 +12,7 @@ AI-powered past paper analysis, text extraction, visual diagram segmentation, an
 # 1. Clone the repository and navigate to project root
 cd EdGenie
 
-# 2. Create and activate a virtual environment
+# 2. Create and activate a virtual environment (Python 3.12+)
 python3 -m venv .venv
 source .venv/bin/activate
 
@@ -21,20 +23,19 @@ pip install -e ".[dev]"
 ### Environment Variables (`.env`)
 
 Create a `.env` file in the project root:
+
 ```ini
-# Google Gemini API Key (Primary for Syllabus & Topic Classification)
-GOOGLE_API_KEY=your_gemini_api_key_here
+# Unstructured.io Transform API Key (Unified 3-in-1 Extraction)
+UNSTRUCTURED_API_KEY=your_unstructured_api_key_here
+UNSTRUCTURED_SERVER_URL=https://transform.unstructured.io
 
-# OpenRouter API Key (Automatic fallback)
-OPENROUTER_API_KEY=your_openrouter_api_key_here
-
-# PostgreSQL Connection (Relational + JSONB)
+# PostgreSQL Connection (Relational + JSONB Storage)
 POSTGRES_URI=postgresql://localhost:5432/edgenie
 
-# Firebase Storage CDN (Stage 4 Media Hosting)
+# Firebase Storage & Asset CDN (Optional Stage 3 Media Hosting)
 CDN_DOMAIN_PREFIX=https://assets.edgenie.io
-GOOGLE_APPLICATION_CREDENTIALS=firebase-key.json
 FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
+GOOGLE_APPLICATION_CREDENTIALS=firebase-key.json
 ```
 
 ---
@@ -60,126 +61,132 @@ This automatically sets up the 6 relational tables (`subjects`, `papers`, `quest
 
 ---
 
-## End-to-End Subject Workflow (Start to Finish)
+## End-to-End Workflow
 
-To run the complete pipeline — **Stage 0 (Syllabus) → Stage 1 (Scraping) → Stage 2 (Text Extraction & Classification) → Stage 3 (Visual Diagram Extraction) → Stage 4 (PostgreSQL DB Ingestion & Firebase Asset Storage)** — follow these commands.
-
-### Example: Complete Pipeline for O-Level Physics (5054)
-
-#### Stage 0: Build Official Syllabus CSV
-```bash
-# Crawl Cambridge International website, download full syllabus PDF, and build 3-column CSV (Unit,Topic,Subtopic)
-edgenie-syllabus build --level o-level --subject physics --code 5054
 ```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           EdGenie Pipeline                                  │
+│                                                                             │
+│  ┌───────────────────────┐         ┌─────────────────────────────────────┐  │
+│  │        Stage 1        │────────▶│               Stage 2               │  │
+│  │   PapaCambridge       │         │       Unified 3-in-1 Pipeline       │  │
+│  │      Scraper          │         │    (Unstructured.io + PyMuPDF)      │  │
+│  │  (`edgenie-scraper`)  │         │  (`edgenie-unified` / `-extractor`) │  │
+│  └───────────────────────┘         └──────────────────┬──────────────────┘  │
+│                                                       │                     │
+│                                                       ▼                     │
+│                                    ┌─────────────────────────────────────┐  │
+│                                    │               Stage 3               │  │
+│                                    │     PostgreSQL DB Ingestion &       │  │
+│                                    │        Firebase CDN Hosting         │  │
+│                                    │        (`edgenie-ingestor`)         │  │
+│                                    └─────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Example: Complete Workflow for O-Level Physics (5054)
 
 #### Stage 1: Scrape Past Papers & Mark Schemes
 ```bash
-# Scrape O-Level Physics (5054) papers from 2010 to 2020 (June & Nov sessions)
+# Scrape O-Level Physics (5054) papers from 2010 to 2024
 edgenie-scraper scrape \
     --level o-level \
     --subject physics \
     --code 5054 \
     --year-start 2010 \
-    --year-end 2020
+    --year-end 2024
 ```
 
-#### Stage 2: Text Extraction & Topic Classification
+#### Stage 2: Unified 3-in-1 Extraction & Classification
 
-You can run text extraction and classification **separately** (recommended for zero-token extraction followed by batch classification) or in a **single combined step**:
+A single call to `edgenie-unified` (or `edgenie-extractor`) submits the PDF to the Unstructured.io Transform API with strict OpenAI-compliant JSON schemas and the official Cambridge syllabus reference:
 
-##### Option A: Separated Commands (Extraction then Classification)
+1. **Text Extraction**: Extracts full question stems, nested sub-parts (`(a)`, `(b)(i)`, etc.), mark allocations, and options (A/B/C/D for MCQs).
+2. **Visual Bounding Boxes**: Detects layout bounding boxes for diagrams, graphs, circuits, and tables in the same cloud pass.
+3. **Syllabus Classification**: Inlines the subject syllabus CSV directly into the prompt so Unit, Topic, Sub-topic, Difficulty, and Command Words are classified simultaneously.
+4. **Local PyMuPDF Cropping**: Filters cover-page logos and header/footer artifacts, crops visual assets at 300 DPI, and patches relative image paths directly into the question JSON tree.
+
 ```bash
-# Step 2a: Extract text layout, question structure, sub-parts, and marks for all PDFs (0 LLM Tokens)
-edgenie-extractor extract-dir --dir pipeline/storage/5054
+# Single exam paper (syllabus auto-discovered from syllabi/ directory)
+edgenie-unified extract-visuals-text-and-classify \
+    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf
 
-# Step 2b: Run Gemini / OpenRouter AI classification pass to tag Unit, Topic, Sub-topic, Difficulty, and Command Words
-edgenie-extractor classify-dir --dir pipeline/storage/5054
+# Or explicitly pass the syllabus CSV
+edgenie-unified extract-visuals-text-and-classify \
+    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf \
+    --syllabus syllabi/PHYSICS_5054.csv
+
+# Force re-extraction (bypassing local cache)
+edgenie-unified extract-visuals-text-and-classify \
+    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf \
+    --force
 ```
 
-##### Option B: Combined Command (Extraction + Classification in One Step)
-```bash
-# Runs both PyMuPDF layout extraction and Gemini topic classification in a single command
-edgenie-extractor process-dir --dir pipeline/storage/5054
-```
+*(Note: `edgenie-extractor extract-visuals-text-and-classify` is an identical alias.)*
 
-#### Stage 3: Visual Diagram & Figure Extraction
-```bash
-# Extract all labelled figures, graphs, tables, and diagrams, linking them to questions in JSON
-edgenie-visuals extract-dir --dir pipeline/storage/5054
-```
+#### Stage 3: PostgreSQL Database Ingestion & Cloud Asset Hosting
 
-#### Stage 4: PostgreSQL Database Ingestion & Asset Sync
-
-Stage 4 is **decoupled** — you can ingest records directly into PostgreSQL without requiring Firebase cloud credentials:
+Stage 3 is decoupled — you can ingest records directly into PostgreSQL without requiring cloud credentials:
 
 ```bash
-# Ingest all structured JSON questions, answers, and visual manifests into PostgreSQL
+# Ingest single paper JSON and visual manifest into PostgreSQL
+edgenie-ingestor db-paper --json pipeline/storage/5054/2023/jun/5054_s23_qp_22.json
+
+# Ingest all extracted papers in a directory tree into PostgreSQL
 edgenie-ingestor db-dir --dir pipeline/storage/5054
 
-# View current database counts across all tables
+# View current database record counts across all PostgreSQL tables
 edgenie-ingestor db-stats
 
 # (Optional) Upload all PDFs and visual images to Firebase Storage (assets.edgenie.io)
 edgenie-ingestor storage-dir --dir pipeline/storage/5054
+
+# (Optional) Full synchronization (both Firebase upload and PostgreSQL ingestion)
+edgenie-ingestor full-sync --dir pipeline/storage/5054
 ```
 
 ---
 
-## Single Paper Commands
+## Core Subject Syllabi
 
-If you want to run stages on a single PDF paper (e.g. `5054_w18_qp_41.pdf`):
+Official Cambridge syllabus CSVs are pre-loaded in the `syllabi/` folder:
+
+| Subject | Code | Syllabus File |
+|---|---|---|
+| Physics | 5054 | `syllabi/PHYSICS_5054.csv` |
+| Chemistry | 5070 | `syllabi/CHEMISTRY_5070.csv` |
+| Biology | 5090 | `syllabi/BIOLOGY_5090.csv` |
+| Accounting | 7707 | `syllabi/ACCOUNTING_7707.csv` |
+| Economics | 2281 | `syllabi/ECONOMICS_2281.csv` |
+| Mathematics Syllabus D | 4024 | `syllabi/MATHEMATICS_4024.csv` |
+| Computer Science | 2210 | `syllabi/COMPUTER_SCIENCE_2210.csv` |
+| Business Studies | 7115 | `syllabi/BUSINESS_7115.csv` |
+| English Language | 1123 | `syllabi/ENGLISH_1123.csv` |
+
+---
+
+## Output File Structure
+
+For any processed question paper PDF (e.g. `5054_s23_qp_22.pdf`):
+
+```
+pipeline/storage/5054/2023/jun/
+├── 5054_s23_qp_22.pdf                  # Raw Cambridge exam paper
+├── 5054_s23_qp_22.json                 # Canonical structured question JSON (text + classification + visual links)
+├── 5054_s23_qp_22_unified_text.json    # Local raw text extraction cache
+├── 5054_s23_qp_22_unified_elements.json# Local layout elements cache
+└── 5054_s23_qp_22/                     # Visual assets folder
+    ├── manifest.json                   # Visual metadata & coordinates manifest
+    ├── p2_q1_question_diagram_1.png
+    ├── p4_q3_part_a_Fig_3_1.png
+    └── p7_q5_part_b_Table_5_1.png
+```
+
+---
+
+## Running Automated Tests
 
 ```bash
-# Stage 2 (Option A): Pure text extraction (0 LLM tokens, saves 5054_w18_qp_41.json)
-edgenie-extractor extract --pdf pipeline/storage/5054/2018/nov/5054_w18_qp_41.pdf
-
-# Stage 2 (Option A): Gemini syllabus classification on pre-extracted JSON
-edgenie-extractor classify --json pipeline/storage/5054/2018/nov/5054_w18_qp_41.json
-
-# Stage 2 (Option B): Combined extraction + classification for a single paper
-edgenie-extractor process --pdf pipeline/storage/5054/2018/nov/5054_w18_qp_41.pdf
-
-# Stage 3: Extract visual diagrams from a single paper
-edgenie-visuals extract --pdf pipeline/storage/5054/2018/nov/5054_w18_qp_41.pdf
-
-# Stage 4: Ingest a single paper's JSON and visual manifest into PostgreSQL
-edgenie-ingestor db-paper --json pipeline/storage/5054/2018/nov/5054_w18_qp_41.json
-
-# Stage 4: (Optional) Upload a single paper's PDF and visuals to Firebase Storage
-edgenie-ingestor storage-paper --pdf pipeline/storage/5054/2018/nov/5054_w18_qp_41.pdf
+# Run the complete test suite (Unified pipeline + DB ingestion)
+pytest tests/ -v
 ```
-
----
-
-## Complete CLI Command Reference
-
-### 1. Syllabus Manager (`edgenie-syllabus`)
-- **Build syllabus CSV**: `edgenie-syllabus build --level <level> --subject <subject> --code <code>`
-- **List available syllabi**: `edgenie-syllabus list`
-
-### 2. Scraper (`edgenie-scraper`)
-- **Scrape year range**: `edgenie-scraper scrape --level o-level --subject physics --code 5054 --year-start 2010 --year-end 2020`
-- **Scrape single session**: `edgenie-scraper scrape --level o-level --subject accounting --code 7707 --year 2023 --session jun`
-- **Dry-run (preview URLs without downloading)**: `edgenie-scraper scrape --level o-level --subject mathematics-d --code 4024 --year-start 2010 --year-end 2020 --dry-run`
-
-### 3. Text Extractor & Classifier (`edgenie-extractor`)
-- **Pure Text Extraction (Single PDF, 0 tokens)**: `edgenie-extractor extract --pdf <path_to_pdf>`
-- **Pure Text Extraction (Directory, 0 tokens)**: `edgenie-extractor extract-dir --dir <path_to_dir>`
-- **Gemini Classification (Single JSON/PDF)**: `edgenie-extractor classify --json <path_to_json> [--syllabus <path_to_csv>]`
-- **Gemini Classification (Directory)**: `edgenie-extractor classify-dir --dir <path_to_dir> [--syllabus <path_to_csv>]`
-- **Combined Process (Single PDF)**: `edgenie-extractor process --pdf <path_to_pdf> [--syllabus <path_to_csv>]`
-- **Combined Process (Directory)**: `edgenie-extractor process-dir --dir <path_to_dir> [--syllabus <path_to_csv>]`
-
-### 4. Visual Extractor (`edgenie-visuals`)
-- **Extract single paper diagrams**: `edgenie-visuals extract --pdf <path_to_pdf>`
-- **Extract directory diagrams**: `edgenie-visuals extract-dir --dir <path_to_dir>`
-
-### 5. PostgreSQL & Firebase Storage Ingestor (`edgenie-ingestor`)
-- **Initialize PostgreSQL schema**: `edgenie-ingestor db-init`
-- **Ingest single paper into PostgreSQL**: `edgenie-ingestor db-paper --json <path_to_json>`
-- **Ingest full directory into PostgreSQL**: `edgenie-ingestor db-dir --dir <path_to_dir>`
-- **Check PostgreSQL table record counts**: `edgenie-ingestor db-stats`
-- **Upload single paper assets to Firebase CDN**: `edgenie-ingestor storage-paper --pdf <path_to_pdf>`
-- **Upload directory assets to Firebase CDN**: `edgenie-ingestor storage-dir --dir <path_to_dir>`
-- **Combined asset upload & DB ingestion**: `edgenie-ingestor full-sync --dir <path_to_dir>`
-

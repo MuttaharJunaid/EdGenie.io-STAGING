@@ -1,4 +1,6 @@
 """
+pipeline/config.py
+
 Pipeline configuration — shared settings for all pipeline stages.
 """
 
@@ -15,6 +17,7 @@ class PipelineSettings(BaseSettings):
 
     # ── Storage ──
     storage_dir: Path = Path("pipeline/storage")
+    syllabi_dir: Path = Path("syllabi")
 
     # ── Scraper ──
     scraper_rate_limit_delay: float = 2.0  # seconds between HTTP requests
@@ -26,21 +29,24 @@ class PipelineSettings(BaseSettings):
     # ── Logging ──
     log_level: str = "INFO"
 
-    # ── AI Agents ──
-    # Text Extraction: Strictly Google Gemini (100% LLM with full-PDF primary + page-by-page fallback)
-    llm_model: str = "gemini-2.5-flash"
-    gemini_max_retries: int = 3
-    gemini_retry_delay: float = 15.0
-    inter_paper_delay: float = 3.0
-
-    # Topic & Syllabus Classification: OpenRouter 1st choice, Gemini fallback
-    classification_provider: str = "openrouter"
-    openrouter_model: str = "google/gemini-2.5-flash"
-    gemini_classification_model: str = "gemini-2.5-flash"
-
-    # Stage 3 — Visual Extraction (Unstructured.io)
+    # ── Unified 3-in-1 Pipeline (Unstructured.io Transform API) ──
+    # Combines Text Extraction, Visual Extraction, and Syllabus Classification into a single cloud parse job.
     unstructured_api_key: str | None = None
     unstructured_server_url: str = "https://transform.unstructured.io"
+    unstructured_profile: str = "best"
+    unstructured_poll_interval: float = 5.0
+    unstructured_max_poll_time: float = 600.0
+    unstructured_timeout_seconds: float = 600.0
+
+    # ── Visual Cropping & Resolution (PyMuPDF) ──
+    visual_dpi: int = 300
+    visual_pad: float = 2.0
+    extract_tables: bool = True
+
+    # ── Database & Cloud Asset Hosting ──
+    postgres_uri: str = "postgresql://localhost:5432/edgenie"
+    cdn_domain_prefix: str = "https://assets.edgenie.io"
+    firebase_storage_bucket: str | None = None
 
     model_config = {
         "env_prefix": "EDGENIE_",

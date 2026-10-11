@@ -82,13 +82,13 @@ class UnifiedPipeline:
             or os.environ.get("UNSTRUCTURED_SERVER_URL")
             or getattr(settings, "unstructured_server_url", "https://transform.unstructured.io")
         )
-        self.profile = profile
-        self.dpi = dpi
-        self.pad = pad
-        self.timeout_seconds = timeout_seconds
-        self.poll_interval = poll_interval
-        self.max_poll_time = max_poll_time
-        self.extract_tables = extract_tables
+        self.profile = profile or getattr(settings, "unstructured_profile", "best")
+        self.dpi = dpi or getattr(settings, "visual_dpi", 300)
+        self.pad = pad if pad is not None else getattr(settings, "visual_pad", 2.0)
+        self.timeout_seconds = timeout_seconds or getattr(settings, "unstructured_timeout_seconds", 600.0)
+        self.poll_interval = poll_interval or getattr(settings, "unstructured_poll_interval", 5.0)
+        self.max_poll_time = max_poll_time or getattr(settings, "unstructured_max_poll_time", 600.0)
+        self.extract_tables = extract_tables if extract_tables is not None else getattr(settings, "extract_tables", True)
         self._client: TransformClient | None = None
 
     # ── Client ────────────────────────────────────────────────────────────────
