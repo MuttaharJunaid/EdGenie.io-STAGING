@@ -28,11 +28,11 @@ class PaperDocumentType(str, Enum):
 
 class ScrapeTarget(BaseModel):
     """Defines what to scrape."""
-    level: str              # "o-level" | "as-and-a-level"
-    subject_name: str       # "accounting"
-    subject_code: str       # "7707"
-    year: int               # 2023
-    session: str            # "jun" | "nov"
+    level: str = "o-level"              # "o-level" | "as-and-a-level"
+    subject_name: str = ""              # optional, resolved via code
+    subject_code: str                   # "7707", "5054", etc.
+    year: int                           # 2023
+    session: str                        # "jun" | "nov"
 
     @property
     def page_url(self) -> str:

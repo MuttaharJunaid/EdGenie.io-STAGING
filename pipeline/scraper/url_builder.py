@@ -50,22 +50,53 @@ class URLBuilder:
         )
         session_slug = SubjectRegistry.format_session_slug(target.session, target.year)
 
+
         urls = [
             f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{year}-{session_slug}"
         ]
 
-        # Alternative session fallback (e.g. legacy jun/nov if may-june/oct-nov fails)
+        # 1. Alternative session fallback (e.g. legacy jun/nov if may-june/oct-nov fails)
         alt_session = "jun" if session_slug == "may-june" else ("nov" if session_slug == "oct-nov" else ("may-june" if session_slug == "jun" else ("oct-nov" if session_slug == "nov" else session_slug)))
         if alt_session != session_slug:
             urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{year}-{alt_session}")
 
-        # Explicit input fallback if different
+        # 2. Session before year (PapaCambridge inverted pattern, e.g. may-june-2020)
+        urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{session_slug}-{year}")
+        if alt_session != session_slug:
+            urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{alt_session}-{year}")
+
+        # 3. Repeated slug without hyphen before year (PapaCambridge repeated-slug bug, e.g. 2024 Nov)
+        urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{resolved_slug}{year}-{session_slug}")
+        urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{resolved_slug}-{year}-{session_slug}")
+        if alt_session != session_slug:
+            urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{resolved_slug}{year}-{alt_session}")
+            urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{resolved_slug}-{year}-{alt_session}")
+
+        # 4. Special alias handling (e.g. 4024 mathematics-d-4024)
+        if subject_code == "4024":
+            urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-mathematics-d-4024{year}-{session_slug}")
+            if alt_session != session_slug:
+                urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-mathematics-d-4024{year}-{alt_session}")
+
+        # 5. November session duplicate year-session anomaly (e.g. 2025-oct-nov2025-oct-nov)
+        is_nov = target.session.lower().strip() in ["nov", "n", "w", "november", "oct-nov", "oct-november", "oct"] or session_slug in ["oct-nov", "nov"]
+        if is_nov:
+            urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{year}-oct-nov{year}-oct-nov")
+            urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{year}-{session_slug}{year}-{session_slug}")
+            if alt_session != session_slug:
+                urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{level}-{resolved_slug}-{year}-{alt_session}{year}-{alt_session}")
+
+        # 6. Explicit input fallback if different
         raw_session = cls.sanitize_segment(target.session)
         fallback_part = f"{level}-{subject_name}-{subject_code}-{year}-{raw_session}"
         if fallback_part not in urls[0]:
             urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{fallback_part}")
 
-        return urls
+        # Deduplicate while preserving order
+        seen = set()
+        unique_urls = [u for u in urls if not (u in seen or seen.add(u))]
+
+        return unique_urls
 
     @classmethod
     def build_download_url(cls, filename: str) -> str:

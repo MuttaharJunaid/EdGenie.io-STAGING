@@ -30,9 +30,9 @@ def setup_logging(level: str):
 
 @app.command()
 def scrape(
-    level: str = typer.Option("o-level", "--level", "-l", help="CAIE Level (o-level or as-and-a-level)"),
-    subject: str = typer.Option("accounting", "--subject", "-s", help="Subject name (e.g. accounting, physics)"),
-    code: str = typer.Option("7707", "--code", "-c", help="Subject code (e.g. 7707, 9706)"),
+    code: str = typer.Option(..., "--code", "-c", help="Subject code to scrape (e.g. 5054, 7707, 9706)"),
+    level: str | None = typer.Option(None, "--level", "-l", help="CAIE Level (o-level or as-and-a-level, optional)"),
+    subject: str | None = typer.Option(None, "--subject", "-s", help="Subject name (optional; locator is found by code)"),
     year: int | None = typer.Option(None, "--year", "-y", help="Specific year to scrape"),
     year_start: int | None = typer.Option(None, "--year-start", help="Starting year for range scrape"),
     year_end: int | None = typer.Option(None, "--year-end", help="Ending year for range scrape"),
@@ -41,9 +41,26 @@ def scrape(
     dry_run: bool = typer.Option(False, "--dry-run", "--dry", help="Only show what would be downloaded, do not execute"),
     log_level: str = typer.Option(settings.log_level, "--log-level", help="Logging level (DEBUG/INFO/WARNING/ERROR)")
 ):
-    """Scrapes past papers and mark schemes for O/A-Levels from PapaCambridge."""
+    """Scrapes past papers and mark schemes for O/A-Levels from PapaCambridge using subject code locator."""
     setup_logging(log_level)
     logger = logging.getLogger(__name__)
+
+    from pipeline.scraper.subject_registry import SubjectRegistry
+
+    clean_code = str(code).strip()
+    entry = SubjectRegistry.lookup_by_code(clean_code)
+
+    if not level:
+        if entry and "level" in entry:
+            resolved_level = entry["level"]
+        elif clean_code.startswith(("9", "8")):
+            resolved_level = "as-and-a-level"
+        else:
+            resolved_level = "o-level"
+    else:
+        resolved_level = SubjectRegistry.normalize_level(level)
+
+    resolved_subject = subject or (entry.get("title") if entry else clean_code)
 
     # Validate sessions
     valid_sessions = []
@@ -77,7 +94,7 @@ def scrape(
         years.append(datetime.now().year)
 
     console.print("[bold blue]Starting EdGenie Scraper Pipeline...[/bold blue]")
-    console.print(f"Subject: [yellow]{subject} ({code})[/yellow] | Level: [yellow]{level}[/yellow]")
+    console.print(f"Subject Code: [yellow]{clean_code}[/yellow] ([yellow]{resolved_subject}[/yellow]) | Level: [yellow]{resolved_level}[/yellow]")
     console.print(f"Years: [yellow]{years}[/yellow] | Sessions: [yellow]{valid_sessions}[/yellow]")
     if force:
         console.print("[bold red]Force mode enabled. Existing files will be overwritten.[/bold red]")
@@ -90,18 +107,22 @@ def scrape(
     for y in years:
         for s in valid_sessions:
             target = ScrapeTarget(
-                level=level,
-                subject_name=subject,
-                subject_code=code,
+                level=resolved_level,
+                subject_name=resolved_subject,
+                subject_code=clean_code,
                 year=y,
                 session=s
             )
             targets.append(target)
 
+    # Initialize shared navigator to reuse Level 1 & Level 2 subject maps across sessions
+    from pipeline.scraper.navigator import PapaCambridgeNavigator
+    navigator = PapaCambridgeNavigator()
+
     # Process all targets
     for target in targets:
         console.print(f"\n[bold cyan]Processing Target: {target.year} {target.session.upper()}[/bold cyan]")
-        scraper = PapaCambridgeScraper(target)
+        scraper = PapaCambridgeScraper(target, navigator=navigator)
 
         try:
             downloaded = scraper.scrape(force=force, dry_run=dry_run)
@@ -112,6 +133,85 @@ def scrape(
             logger.error(f"Error scraping target {target.year} {target.session}: {e}", exc_info=True)
 
     console.print(f"\n[bold green]Scrape Job Finished![/bold green] Total files downloaded/identified: [bold]{total_downloaded}[/bold]")
+
+    # Run post-scraping session directory prefix validation
+    if not dry_run:
+        console.print("\n[bold blue]Running Post-Scraping Directory & Prefix Validation...[/bold blue]")
+        from pipeline.scraper.validator import validate_scraped_sessions
+
+        val_res = validate_scraped_sessions(
+            subject_code=code,
+            years=years,
+            sessions=valid_sessions,
+        )
+        if val_res["deleted_sessions"]:
+            console.print(
+                f"[bold red]Validation Failure:[/bold red] Deleted {len(val_res['deleted_sessions'])} "
+                f"session directory/directories containing mismatched file prefixes:"
+            )
+            for d in val_res["deleted_sessions"]:
+                console.print(f"  [red]✗ Deleted:[/red] {d}")
+        else:
+            console.print(
+                f"[bold green]✓ Validation Passed:[/bold green] All {val_res['validated_sessions']} session "
+                f"directory/directories verified with correct prefixes."
+            )
+
+
+@app.command("validate")
+def validate_cmd(
+    code: str = typer.Option(..., "--code", "-c", help="Subject code to validate (e.g. 5054, 7707)"),
+    year: int | None = typer.Option(None, "--year", "-y", help="Specific year to validate"),
+    year_start: int | None = typer.Option(None, "--year-start", help="Starting year for range validation"),
+    year_end: int | None = typer.Option(None, "--year-end", help="Ending year for range validation"),
+    session: list[str] = typer.Option(["jun", "nov"], "--session", "-se", help="Sessions to validate (jun/nov)"),
+    log_level: str = typer.Option("INFO", "--log-level"),
+):
+    """Validates downloaded PDF prefixes in session directories and removes any corrupted/mismatched session directories."""
+    setup_logging(log_level)
+    from pipeline.scraper.validator import validate_scraped_sessions
+
+    valid_sessions = []
+    for s in session:
+        s_clean = s.lower().strip()
+        if s_clean in ["jun", "j", "s", "june", "may-june", "may-jun"]:
+            valid_sessions.append("jun")
+        elif s_clean in ["nov", "n", "w", "november", "oct-nov"]:
+            valid_sessions.append("nov")
+        elif s_clean in ["m", "march", "feb-march"]:
+            valid_sessions.append("march")
+    valid_sessions = list(set(valid_sessions)) or ["jun", "nov"]
+
+    years = []
+    if year is not None:
+        years.append(year)
+    elif year_start is not None and year_end is not None:
+        years = list(range(year_start, year_end + 1))
+    else:
+        # Check all existing year folders on disk
+        subj_dir = settings.storage_dir / code
+        if subj_dir.exists():
+            for p in subj_dir.iterdir():
+                if p.is_dir() and p.name.isdigit():
+                    years.append(int(p.name))
+        if not years:
+            years.append(datetime.now().year)
+
+    console.print(f"[bold blue]Validating session directories for subject {code} across years {sorted(years)}...[/bold blue]")
+    val_res = validate_scraped_sessions(subject_code=code, years=years, sessions=valid_sessions)
+
+    if val_res["deleted_sessions"]:
+        console.print(
+            f"[bold red]Validation Failure:[/bold red] Deleted {len(val_res['deleted_sessions'])} "
+            f"session directory/directories with mismatched file prefixes:"
+        )
+        for d in val_res["deleted_sessions"]:
+            console.print(f"  [red]✗ Deleted:[/red] {d}")
+    else:
+        console.print(
+            f"[bold green]✓ Validation Passed:[/bold green] All {val_res['validated_sessions']} session "
+            f"directory/directories verified with correct prefixes."
+        )
 
 
 @app.command()

@@ -1,7 +1,8 @@
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
@@ -22,54 +23,28 @@ class PapaCambridgeScraper:
         r"^([0-9]{4})_([a-zA-Z])([0-9]{2})_([a-zA-Z0-9]+)(?:_([0-9a-zA-Z]+))?(?:\..*)?$"
     )
 
-    def __init__(self, target: ScrapeTarget):
+    def __init__(
+        self,
+        target: ScrapeTarget,
+        downloader: PDFDownloader | None = None,
+        session: requests.Session | None = None,
+        navigator: Any | None = None,
+    ):
         self.target = target
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": settings.scraper_user_agent
-        })
-        self.downloader = PDFDownloader()
+        self.session = session or requests.Session()
+        if "User-Agent" not in self.session.headers:
+            self.session.headers.update({
+                "User-Agent": settings.scraper_user_agent
+            })
+        self.downloader = downloader or PDFDownloader()
+        from pipeline.scraper.navigator import PapaCambridgeNavigator
+        self.navigator = navigator or PapaCambridgeNavigator(self.session)
 
     def _extract_pdf_urls_static(self, html: str) -> list[str]:
-        """Parse download links from static HTML."""
-        soup = BeautifulSoup(html, "html.parser")
-        pdf_urls = set()
-
-        # PapaCambridge uses different elements. Let's find:
-        # 1. <a> tags with download_file.php in href
-        # 2. <a> tags pointing directly to pdf files
-        for link in soup.find_all("a"):
-            href = link.get("href", "").strip()
-            if not href:
-                continue
-
-            # Case 1: download_file.php?files=...
-            if "download_file.php" in href:
-                parsed = urlparse(href)
-                query_params = parse_qs(parsed.query)
-                file_url = query_params.get("files", [None])[0]
-                if file_url:
-                    # Clean the file URL
-                    file_url = file_url.strip()
-                    if file_url.endswith(".pdf"):
-                        pdf_urls.add(file_url)
-
-            # Case 2: direct PDF download link
-            elif href.endswith(".pdf"):
-                # Resolve relative URLs if necessary
-                full_url = urljoin(URLBuilder.BASE_URL, href)
-                pdf_urls.add(full_url)
-
-        # Filter URLs by subject code to avoid grabbing other subjects listed
-        filtered_urls = []
-        for url in pdf_urls:
-            filename = url.split("/")[-1]
-            if filename.startswith(self.target.subject_code):
-                filtered_urls.append(url)
-            else:
-                logger.debug(f"Skipped link not matching subject code: {filename}")
-
-        return filtered_urls
+        """Parse download links from static HTML using download button locators."""
+        from pipeline.scraper.validator import get_expected_prefix
+        expected_prefix = get_expected_prefix(self.target.subject_code, self.target.year, self.target.session)
+        return self.navigator.extract_download_links_from_session_page(html, expected_prefix)
 
     def _extract_pdf_urls_playwright(self, url: str) -> list[str]:
         """Fallback: uses Playwright to render JS and extract PDF URLs."""
@@ -211,7 +186,20 @@ class PapaCambridgeScraper:
         Main function to trigger page fetching and PDF downloading.
         Returns a list of local paths to the downloaded files.
         """
-        candidate_urls = URLBuilder.get_candidate_urls(self.target)
+        # Step 1: Hierarchical navigation strategy (authoritative route discovery)
+        candidate_urls: list[str] = []
+        try:
+            nav_session_url = self.navigator.resolve_session_page_url(self.target)
+            if nav_session_url:
+                candidate_urls.append(nav_session_url)
+        except Exception as e:
+            logger.warning(f"Hierarchical navigation encountered an issue: {e}. Falling back to URLBuilder.")
+
+        # Step 2: Append fallback URLs from URLBuilder
+        for u in URLBuilder.get_candidate_urls(self.target):
+            if u not in candidate_urls:
+                candidate_urls.append(u)
+
         pdf_urls = []
         chosen_url = None
 
@@ -300,7 +288,7 @@ class PapaCambridgeScraper:
         if manifest_files:
             manifest_path = storage_dir / "scrape_manifest.json"
             manifest = ScrapeManifest(
-                scraped_at=datetime.utcnow(),
+                scraped_at=datetime.now(timezone.utc),
                 target=self.target,
                 files=manifest_files
             )
