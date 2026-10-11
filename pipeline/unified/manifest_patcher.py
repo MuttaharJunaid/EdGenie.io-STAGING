@@ -1,10 +1,12 @@
 """
-pipeline/visuals/manifest_patcher.py
+pipeline/unified/manifest_patcher.py
 
-Authoritative logic for linking and patching Stage 3 visual manifest images into
-Stage 2 extracted JSON question records. Handles question stems, top-level parts,
+Authoritative logic for linking and patching visual manifest images into
+unified extracted JSON question records. Handles question stems, top-level parts,
 compound subparts, and nested sub-subparts with question compatibility guards.
 """
+
+from __future__ import annotations
 
 import re
 from typing import Any
@@ -35,8 +37,6 @@ def patch_records_with_manifest(
     if not records or not manifest:
         return 0
 
-    # Group manifest relative paths by (question, part)
-    # part == None or "stem" -> question-level image
     q_to_stem_files: dict[int, list[str]] = {}
     q_part_to_files: dict[tuple[int, str], list[str]] = {}
 
@@ -85,7 +85,6 @@ def patch_records_with_manifest(
             continue
         q_num = int(m.group(1))
 
-        # Patch question-level image (stem figures)
         stem_candidates = [
             f
             for f in q_to_stem_files.get(q_num, [])
@@ -95,7 +94,6 @@ def patch_records_with_manifest(
             record["image"] = stem_candidates if len(stem_candidates) > 1 else stem_candidates[0]
             patched += 1
 
-        # Patch part-level and nested sub-part images recursively
         def _patch_tree_images(
             node: dict[str, Any], is_top: bool = False, parent_lbl: str = ""
         ) -> int:
@@ -111,7 +109,7 @@ def patch_records_with_manifest(
                 if parent_lbl:
                     clean_leaf = plabel.strip("() ").lower()
                     if clean_leaf.startswith(parent_lbl):
-                        clean_leaf = clean_leaf[len(parent_lbl):].strip("() ")
+                        clean_leaf = clean_leaf[len(parent_lbl) :].strip("() ")
                     candidates.extend(
                         [
                             f"{parent_lbl}({clean_leaf})",

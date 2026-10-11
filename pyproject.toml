@@ -55,10 +55,10 @@ dev = [
 
 [project.scripts]
 edgenie-scraper = "pipeline.scraper.cli:app"
-edgenie-extractor = "pipeline.extractor.cli:app"
-edgenie-visuals = "pipeline.visuals.cli:app"
+edgenie-unified = "pipeline.unified.cli:app"
+edgenie-extractor = "pipeline.unified.cli:app"
 edgenie-ingestor = "pipeline.ingestion.cli:app"
-edgenie-syllabus = "pipeline.syllabus.cli:app"
+
 
 [tool.setuptools.packages.find]
 include = ["pipeline*"]

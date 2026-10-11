@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pipeline.extractor.paper_type_detector import PaperCategory, PaperTypeDetector
+from pipeline.unified.paper_type_detector import PaperCategory, PaperTypeDetector
 from pipeline.ingestion.postgres_client import PostgresClient
 
 logger = logging.getLogger(__name__)

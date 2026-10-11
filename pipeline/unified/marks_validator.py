@@ -1,5 +1,5 @@
 """
-pipeline/extractor/marks_validator.py
+pipeline/unified/marks_validator.py
 
 Validates and reconciles question, part, and sub-part mark allocations.
 Enforces Cambridge exam hierarchy rules:
@@ -8,6 +8,8 @@ Enforces Cambridge exam hierarchy rules:
 3. Total question marks strictly equal the sum of constituent part marks.
 4. Trailing mark indicators [N] and [Total: N] are stripped from prose text.
 """
+
+from __future__ import annotations
 
 import logging
 import re
@@ -49,17 +51,14 @@ class MarkHierarchyValidator:
         m = MARK_BRACKET_RE.search(cleaned_text)
         extracted_mark = current_mark
         if m:
-            # Check if this [N] is at or near the end of the text
             end_match = list(MARK_BRACKET_RE.finditer(cleaned_text))
             if end_match:
                 last_m = end_match[-1]
-                # If the bracket is in the last 20 chars of the text
                 if last_m.end() >= len(cleaned_text) - 15:
                     try:
                         extracted_mark = int(last_m.group(1))
                     except (ValueError, TypeError):
                         pass
-                    # Strip the trailing [N]
                     cleaned_text = (
                         cleaned_text[: last_m.start()] + cleaned_text[last_m.end() :]
                     ).strip()
@@ -82,7 +81,6 @@ class MarkHierarchyValidator:
         audit_logs: list[str] = []
         q_num = q_record.get("QuestionNumber", "Unknown")
 
-        # Strip any [Total: N] from Question_text
         q_text = q_record.get("Question_text", "") or ""
         total_m = TOTAL_MARK_RE.search(q_text)
         expected_total_from_text = None
@@ -96,7 +94,6 @@ class MarkHierarchyValidator:
 
         parts = q_record.get("Parts", [])
         if not parts:
-            # Single-part question without parts list
             cleaned_q_text, leaf_mark = cls.clean_text_and_extract_leaf_mark(
                 q_text,
                 q_record.get("Marks", 1),
@@ -116,8 +113,6 @@ class MarkHierarchyValidator:
             sub_parts = part.get("sub_parts", [])
 
             if sub_parts:
-                # Part has child sub-parts (e.g. (i), (ii))
-                # Clean part_text
                 p_text = part.get("part_text", "") or ""
                 cleaned_p_text, _ = cls.clean_text_and_extract_leaf_mark(p_text, 1)
                 part["part_text"] = cleaned_p_text
@@ -128,7 +123,6 @@ class MarkHierarchyValidator:
                     sub_sub_parts = sp.get("sub_parts", [])
 
                     if sub_sub_parts:
-                        # Deeply nested sub-sub-parts
                         cleaned_sp_text, _ = cls.clean_text_and_extract_leaf_mark(
                             sp.get("sub_part_text", "") or "", 1
                         )
@@ -151,7 +145,6 @@ class MarkHierarchyValidator:
                             )
                         sp["marks"] = calculated_sp_marks
                     else:
-                        # Leaf sub-part
                         cleaned_sp_text, sp_mark = cls.clean_text_and_extract_leaf_mark(
                             sp.get("sub_part_text", "") or "",
                             sp.get("marks", 1),
@@ -161,7 +154,6 @@ class MarkHierarchyValidator:
 
                     calculated_part_marks += sp["marks"]
 
-                # Enforce part.marks = sum of sub_parts
                 orig_p_marks = part.get("marks")
                 if orig_p_marks != calculated_part_marks:
                     audit_logs.append(
@@ -170,7 +162,6 @@ class MarkHierarchyValidator:
                 part["marks"] = calculated_part_marks
 
             else:
-                # Leaf part without sub-parts
                 cleaned_p_text, p_mark = cls.clean_text_and_extract_leaf_mark(
                     part.get("part_text", "") or "",
                     part.get("marks", 1),
@@ -180,7 +171,6 @@ class MarkHierarchyValidator:
 
             calculated_q_marks += part["marks"]
 
-        # Enforce question.Marks = sum of parts
         orig_q_marks = q_record.get("Marks")
         if orig_q_marks != calculated_q_marks:
             audit_logs.append(
@@ -211,21 +201,24 @@ class MarkHierarchyValidator:
 
         reconciled_records = []
         for record in records:
-            # Only essay QP papers have hierarchical parts/subparts
-            if "QuestionNumber" in record and ("Parts" in record or "Marks" in record):
+            if "QuestionNumber" in record and "Options" in record:
+                # MCQ question paper: strictly 1 mark per question
+                if record.get("Marks") != 1:
+                    all_audit_logs.append(
+                        f"{record.get('QuestionNumber')}: updated MCQ marks from {record.get('Marks')} to 1"
+                    )
+                    discrepancies_count += 1
+                record["Marks"] = 1
+                total_paper_marks += 1
+                reconciled_records.append(record)
+            elif "QuestionNumber" in record and ("Parts" in record or "Marks" in record):
                 reconciled, logs = cls.reconcile_question_marks(record)
                 if logs:
                     discrepancies_count += len(logs)
                     all_audit_logs.extend(logs)
                 total_paper_marks += reconciled.get("Marks", 1)
                 reconciled_records.append(reconciled)
-            elif "QuestionNumber" in record and "Options" in record:
-                # MCQ question paper: strictly 1 mark per question
-                record["Marks"] = 1
-                total_paper_marks += 1
-                reconciled_records.append(record)
             else:
-                # Mark schemes or other records
                 reconciled_records.append(record)
 
         stats = {
@@ -237,9 +230,7 @@ class MarkHierarchyValidator:
 
         if discrepancies_count > 0:
             logger.info(
-                f"Marks validation reconciled {discrepancies_count} mark hierarchy discrepancy/discrepancies across {questions_count} question(s). Total Paper Marks: {total_paper_marks}"
+                f"Marks validation reconciled {discrepancies_count} discrepancy/discrepancies across {questions_count} question(s). Total Paper Marks: {total_paper_marks}"
             )
-            for log_entry in all_audit_logs[:10]:
-                logger.debug(f"  [Marks Audit] {log_entry}")
 
         return reconciled_records, stats
