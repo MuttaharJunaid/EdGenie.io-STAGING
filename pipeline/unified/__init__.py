@@ -6,14 +6,14 @@ Text Extraction + Visual Extraction + Syllabus Classification
 powered by Unstructured.io Transform API & PyMuPDF.
 """
 
-from pipeline.unified.marks_validator import MarkHierarchyValidator
 from pipeline.unified.manifest_patcher import patch_records_with_manifest
+from pipeline.unified.marks_validator import MarkHierarchyValidator
 from pipeline.unified.paper_type_detector import (
     PaperCategory,
     PaperTypeDetector,
     parse_caie_filename,
 )
-from pipeline.unified.pipeline import UnifiedPipeline
+from pipeline.unified.pipeline import JobTimeoutError, UnifiedPipeline
 from pipeline.unified.schemas import (
     EssayAnswer,
     EssayAnswersContainer,
@@ -29,6 +29,7 @@ from pipeline.unified.schemas import (
 from pipeline.unified.syllabus_loader import SyllabusLoader
 
 __all__ = [
+    "JobTimeoutError",
     "UnifiedPipeline",
     "PaperCategory",
     "PaperTypeDetector",

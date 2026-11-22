@@ -6,12 +6,11 @@ Loads and parses the Cambridge CSV syllabi for topic classification.
 
 from __future__ import annotations
 
+import csv
 import functools
 import logging
 import re
 from pathlib import Path
-
-import pandas as pd
 
 from pipeline.unified.schemas import SyllabusUnit
 
@@ -60,64 +59,78 @@ class SyllabusLoader:
     @staticmethod
     @functools.lru_cache(maxsize=32)
     def load_syllabus(csv_path: Path) -> list[SyllabusUnit]:
-        """Loads a syllabus CSV file. Returns a list of SyllabusUnit objects."""
+        """Loads a syllabus CSV file using Python's standard csv library. Returns a list of SyllabusUnit objects."""
         logger.info("Loading syllabus CSV from: %s", csv_path)
         if not csv_path.exists():
             raise FileNotFoundError(f"Syllabus file not found at {csv_path}")
 
-        df = pd.read_csv(csv_path)
-        df.columns = [col.lower().strip() for col in df.columns]
+        with open(csv_path, encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            header_row = next(reader, None)
+            if not header_row:
+                return []
 
-        is_3col = all(col in df.columns for col in ["unit", "topic", "subtopic"])
-        is_5col = all(
-            col in df.columns
-            for col in ["unit_number", "unit_name", "topic_number", "topic_name", "sub_topic"]
-        )
+            columns = [col.lower().strip() for col in header_row]
 
-        if not is_3col and not is_5col:
-            raise ValueError(
-                f"Syllabus CSV must contain either ['unit', 'topic', 'subtopic'] "
-                f"or ['unit_number', 'unit_name', 'topic_number', 'topic_name', 'sub_topic']. "
-                f"Got: {list(df.columns)}"
+            is_3col = all(col in columns for col in ["unit", "topic", "subtopic"])
+            is_5col = all(
+                col in columns
+                for col in ["unit_number", "unit_name", "topic_number", "topic_name", "sub_topic"]
             )
 
-        units: list[SyllabusUnit] = []
-        for _, row in df.iterrows():
-            if is_5col:
-                unit_number = str(row["unit_number"]).strip()
-                unit_name = str(row["unit_name"]).strip()
-                topic_number = str(row["topic_number"]).strip()
-                topic_name = str(row["topic_name"]).strip()
-                sub_topic = str(row["sub_topic"]).strip()
-            else:
-                unit_raw = str(row["unit"]).strip()
-                topic_raw = str(row["topic"]).strip()
-                sub_topic = str(row["subtopic"]).strip()
+            if not is_3col and not is_5col:
+                raise ValueError(
+                    f"Syllabus CSV must contain either ['unit', 'topic', 'subtopic'] "
+                    f"or ['unit_number', 'unit_name', 'topic_number', 'topic_name', 'sub_topic']. "
+                    f"Got: {columns}"
+                )
 
-                unit_match = re.match(r"(?i)^unit\s+(\d+(?:\.\d+)*)\s*:\s*(.*)$", unit_raw)
-                if unit_match:
-                    unit_number = unit_match.group(1).strip()
-                    unit_name = unit_match.group(2).strip()
+            col_map = {name: idx for idx, name in enumerate(columns)}
+            units: list[SyllabusUnit] = []
+
+            for row in reader:
+                if not row or not any(field.strip() for field in row):
+                    continue
+
+                def _get_val(col_name: str) -> str:
+                    idx = col_map.get(col_name)
+                    return str(row[idx]).strip() if idx is not None and idx < len(row) else ""
+
+                if is_5col:
+                    unit_number = _get_val("unit_number")
+                    unit_name = _get_val("unit_name")
+                    topic_number = _get_val("topic_number")
+                    topic_name = _get_val("topic_name")
+                    sub_topic = _get_val("sub_topic")
                 else:
-                    unit_number = unit_raw
-                    unit_name = ""
+                    unit_raw = _get_val("unit")
+                    topic_raw = _get_val("topic")
+                    sub_topic = _get_val("subtopic")
 
-                topic_match = re.match(r"^(\d+(?:\.\d+)*)\s+(.*)$", topic_raw)
-                if topic_match:
-                    topic_number = topic_match.group(1).strip()
-                    topic_name = topic_match.group(2).strip()
-                else:
-                    topic_number = topic_raw
-                    topic_name = ""
+                    unit_match = re.match(r"(?i)^unit\s+(\d+(?:\.\d+)*)\s*:\s*(.*)$", unit_raw)
+                    if unit_match:
+                        unit_number = unit_match.group(1).strip()
+                        unit_name = unit_match.group(2).strip()
+                    else:
+                        unit_number = unit_raw
+                        unit_name = ""
 
-            unit = SyllabusUnit(
-                unit_number=unit_number,
-                unit_name=unit_name,
-                topic_number=topic_number,
-                topic_name=topic_name,
-                sub_topic=sub_topic,
-            )
-            units.append(unit)
+                    topic_match = re.match(r"^(\d+(?:\.\d+)*)\s+(.*)$", topic_raw)
+                    if topic_match:
+                        topic_number = topic_match.group(1).strip()
+                        topic_name = topic_match.group(2).strip()
+                    else:
+                        topic_number = topic_raw
+                        topic_name = ""
+
+                unit = SyllabusUnit(
+                    unit_number=unit_number,
+                    unit_name=unit_name,
+                    topic_number=topic_number,
+                    topic_name=topic_name,
+                    sub_topic=sub_topic,
+                )
+                units.append(unit)
 
         logger.info("Successfully loaded %d syllabus rules.", len(units))
         return units

@@ -8,11 +8,11 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
-dotenv.load_dotenv()
-
 from pipeline.config import settings
 from pipeline.scraper.models import ScrapeManifest, ScrapeTarget
 from pipeline.scraper.scraper import PapaCambridgeScraper
+
+dotenv.load_dotenv()
 
 # Initialize Typer App
 app = typer.Typer(help="EdGenie Past Paper Scraper CLI")
@@ -107,8 +107,8 @@ def scrape(
     for y in years:
         for s in valid_sessions:
             target = ScrapeTarget(
-                level=resolved_level,
-                subject_name=resolved_subject,
+                level=str(resolved_level),
+                subject_name=str(resolved_subject or ""),
                 subject_code=clean_code,
                 year=y,
                 session=s

@@ -1,5 +1,5 @@
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from pipeline.config import settings
 
 
-class PaperDocumentType(str, Enum):
+class PaperDocumentType(StrEnum):
     QUESTION_PAPER = "qp"
     MARK_SCHEME = "ms"
     EXAMINER_REPORT = "er"

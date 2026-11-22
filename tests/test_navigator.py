@@ -1,11 +1,12 @@
-import pytest
 from unittest.mock import MagicMock
+
+from pipeline.scraper.models import ScrapeTarget
 from pipeline.scraper.navigator import (
     PapaCambridgeNavigator,
     normalize_level_url,
     parse_session_element_text,
 )
-from pipeline.scraper.models import ScrapeTarget
+
 
 def test_normalize_level_url():
     assert normalize_level_url("o-level") == "https://pastpapers.papacambridge.com/papers/caie/o-level?theme=lightTheme"
@@ -51,7 +52,7 @@ def test_extract_download_links_from_session_page():
 
 def test_navigator_navigation_hierarchy():
     mock_session = MagicMock()
-    
+
     # Mock Level 1 page
     level1_html = """
     <html>
@@ -65,7 +66,7 @@ def test_navigator_navigation_hierarchy():
         </body>
     </html>
     """
-    
+
     # Mock Level 2 subject page
     level2_html = """
     <html>
@@ -79,7 +80,7 @@ def test_navigator_navigation_hierarchy():
         </body>
     </html>
     """
-    
+
     def mock_get(url, *args, **kwargs):
         resp = MagicMock()
         resp.status_code = 200
@@ -90,11 +91,11 @@ def test_navigator_navigation_hierarchy():
         else:
             resp.text = "<html></html>"
         return resp
-        
+
     mock_session.get.side_effect = mock_get
-    
+
     nav = PapaCambridgeNavigator(session=mock_session)
-    
+
     target = ScrapeTarget(
         level="as-and-a-level",
         subject_name="accounting",
@@ -102,10 +103,10 @@ def test_navigator_navigation_hierarchy():
         year=2026,
         session="jun",
     )
-    
+
     session_url = nav.resolve_session_page_url(target)
     assert session_url == "https://pastpapers.papacambridge.com/papers/caie/as-and-a-level-accounting-9706-2026-may-june"
-    
+
     # Verify cached subject URL avoids re-fetching Level 1 page
     target_nov = ScrapeTarget(
         level="as-and-a-level",

@@ -6,8 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pipeline.unified.paper_type_detector import PaperCategory, PaperTypeDetector
 from pipeline.ingestion.postgres_client import PostgresClient
+from pipeline.unified.paper_type_detector import (
+    PaperCategory,
+    PaperTypeDetector,
+    parse_caie_filename,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +20,8 @@ CDN_DOMAIN_PREFIX = os.getenv("CDN_DOMAIN_PREFIX", "https://assets.edgenie.io").
 
 class PostgresIngestor:
     """
-    Stage 4 PostgresIngestor (Relational + JSONB):
-    Ingests Stage 2 structured question/answer JSONs and Stage 3 visual manifests
+    Stage 3 PostgresIngestor (Relational + JSONB):
+    Ingests Stage 2 structured question/answer JSONs and visual manifests
     directly into PostgreSQL database tables:
         1. subjects
         2. papers
@@ -40,43 +44,15 @@ class PostgresIngestor:
         Robust to prefixes/suffixes like 'mock_5054_s25_qp_22.json'.
         """
         stem = Path(filename).stem
-
-        # 1. Primary regex match: e.g. 5054_s25_qp_22
-        match = re.search(r"(\d{4})_([swm]\d{2})_(qp|ms|er|gt|ci)_(\d{1,2})", stem, re.IGNORECASE)
-        if match:
-            subject_code = match.group(1)
-            sy_raw = match.group(2).lower()
-            session_char = sy_raw[0]
-            session = {"s": "jun", "w": "nov", "m": "mar"}.get(session_char, "jun")
-            yr_val = int(sy_raw[1:])
-            year = 2000 + yr_val if yr_val < 100 else yr_val
-            paper_type = match.group(3).lower()
-            variant = match.group(4)
-            paper_number = int(variant[0]) if variant and variant[0].isdigit() else 1
-            return {
-                "paper_code": stem,
-                "subject_code": subject_code,
-                "year": year,
-                "session": session,
-                "paper_type": paper_type,
-                "variant": variant,
-                "paper_number": paper_number,
-            }
-
-        # 2. Fallback delimiter split
-        parts = stem.split("_")
-        subject_code = parts[0] if len(parts) > 0 else "5054"
-        is_ms = "_ms_" in stem.lower() or stem.lower().endswith("_ms")
-        paper_type = "ms" if is_ms else "qp"
-
+        parsed = parse_caie_filename(filename)
         return {
             "paper_code": stem,
-            "subject_code": subject_code,
-            "year": 2025,
-            "session": "jun",
-            "paper_type": paper_type,
-            "variant": "11",
-            "paper_number": 1,
+            "subject_code": parsed["subject_code"],
+            "year": parsed["year"],
+            "session": parsed["session"],
+            "paper_type": parsed["doc_type"],
+            "variant": parsed["variant"],
+            "paper_number": parsed["paper_number"],
         }
 
     def ingest_paper_json(self, json_path: Path) -> dict[str, Any]:
@@ -315,7 +291,12 @@ class PostgresIngestor:
 
         all_json = list(dir_path.glob("**/*.json"))
         # Exclude manifest files (manifest.json, scrape_manifest.json, etc.)
-        paper_jsons = [j for j in all_json if not j.name.endswith("manifest.json")]
+        # and Unified cache files (*_unified_elements.json, *_unified_text.json)
+        paper_jsons = [
+            j for j in all_json
+            if not j.name.endswith("manifest.json")
+            and "unified" not in j.name.lower()
+        ]
 
         # Sort so that _qp_ files are processed before _ms_ files
         def sort_key(p: Path) -> tuple[int, str]:

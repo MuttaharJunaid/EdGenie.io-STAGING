@@ -8,8 +8,8 @@ for the Unified 3-in-1 Pipeline.
 from __future__ import annotations
 
 from typing import Any
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ── MCQ Schemas ──
 
@@ -126,7 +126,7 @@ class EssayAnswersContainer(BaseModel):
 
 # ── OpenAI Strict Schema Converter ──
 
-def to_strict_openai_schema(model_cls: type) -> dict[str, Any]:
+def to_strict_openai_schema(model_cls: type[BaseModel]) -> dict[str, Any]:
     """
     Converts a Pydantic model class into an OpenAI Structured Outputs
     compliant JSON Schema:
@@ -134,7 +134,7 @@ def to_strict_openai_schema(model_cls: type) -> dict[str, Any]:
       - additionalProperties: False on every object.
       - Strips root title and description.
     """
-    schema = model_cls.model_json_schema()
+    schema: dict[str, Any] = model_cls.model_json_schema()
 
     def _make_strict(node: Any) -> Any:
         if not isinstance(node, dict):

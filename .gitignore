@@ -54,4 +54,9 @@ scratch_rendered.html
 .unstructured_cache/
 tmp/
 *.pdf
+.pipeline_run_counter
+
+# ── Failed/timeout extraction jobs (do not commit) ──
+timed_out_jobs*.json
+
 

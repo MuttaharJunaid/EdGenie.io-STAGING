@@ -1,5 +1,5 @@
 """
-Stage 4 — PostgreSQL Ingestion (Relational + JSONB) & Firebase Asset Storage CLI
+Stage 3 — PostgreSQL Ingestion (Relational + JSONB) & Firebase Asset Storage CLI
 """
 import logging
 from pathlib import Path
@@ -10,13 +10,13 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
-dotenv.load_dotenv()
-
 from pipeline.ingestion.firebase_storage import FirebaseStorageManager
 from pipeline.ingestion.postgres_client import PostgresClient
 from pipeline.ingestion.postgres_ingestor import PostgresIngestor
 
-app = typer.Typer(help="EdGenie Stage 4 — PostgreSQL (Relational + JSONB) Ingestion & Firebase Storage CLI")
+dotenv.load_dotenv()
+
+app = typer.Typer(help="EdGenie Stage 3 — PostgreSQL (Relational + JSONB) Ingestion & Firebase Storage CLI")
 console = Console()
 
 

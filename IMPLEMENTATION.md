@@ -94,10 +94,12 @@ EdGenie/
 │   │
 │   ├── scraper/                         # STAGE 1 — Scraper
 │   │   ├── __init__.py
-│   │   ├── cli.py                       # `edgenie-scraper` CLI
-│   │   ├── scraper.py                   # PapaCambridgeScraper
+│   │   ├── cli.py                       # `edgenie-scraper` CLI (scrape, validate, list-papers)
+│   │   ├── scraper.py                   # PapaCambridgeScraper (Navigator primary, URLBuilder fallback)
+│   │   ├── navigator.py                 # PapaCambridgeNavigator (Level 1/2/3 hierarchical crawler)
+│   │   ├── validator.py                 # Post-scraping session directory prefix validator
 │   │   ├── downloader.py                # Retrying PDF downloader (tenacity)
-│   │   ├── url_builder.py               # Year-aware URL builder
+│   │   ├── url_builder.py               # Year-aware URL builder with anomaly patterns
 │   │   ├── subject_registry.py          # Subject registry & session code resolver
 │   │   ├── subject_registry.json        # 58 O-Level & 115 A-Level subject dictionary
 │   │   ├── watermark_remover.py         # PapaCambridge watermark detection and cleaner
@@ -105,7 +107,7 @@ EdGenie/
 │   │
 │   ├── unified/                         # STAGE 2 — Unified 3-in-1 Pipeline
 │   │   ├── __init__.py
-│   │   ├── cli.py                       # `edgenie-unified` / `edgenie-extractor` CLI
+│   │   ├── cli.py                       # `edgenie-unified` / `edgenie-extractor` CLI (extract, extract-dir)
 │   │   ├── pipeline.py                  # UnifiedPipeline: single API parse + local PyMuPDF cropping
 │   │   ├── schemas.py                   # Pydantic models (MCQ, Essay, Syllabus) & to_strict_openai_schema
 │   │   ├── paper_type_detector.py       # PaperCategory, PaperTypeDetector & parse_caie_filename
@@ -124,7 +126,9 @@ EdGenie/
 │       └── {subject_code}/{year}/{session}/
 │
 └── tests/                               # Pytest test suite
-    ├── test_unified_pipeline.py         # Tests for unified pipeline across core subjects
+    ├── test_navigator.py                # Tests for PapaCambridgeNavigator hierarchical traversal
+    ├── test_scraper_validation.py       # Tests for prefix validation & URL anomaly builder
+    ├── test_unified_pipeline.py         # Tests for unified single/directory pipeline
     └── test_ingestion.py                # Tests for PostgreSQL ingestion and Firebase CDN
 ```
 
@@ -132,10 +136,50 @@ EdGenie/
 
 ## 4. Stage 1 — Scraper
 
-- **Target**: PapaCambridge qualification past papers.
-- **Subject Registry**: Maps 58 O-Level and 115 A-Level subjects to standardized codes and session slugs (`may-june`, `oct-nov`, `march`).
-- **Watermark Cleaning**: `watermark_remover.py` cleans overlay banners on papers $\ge 2026$.
-- **CLI**: `edgenie-scraper scrape --level <lvl> --subject <name> --code <code> --year-start <yr> --year-end <yr>`.
+### 4.1 Hierarchical PapaCambridge Navigation Engine (`PapaCambridgeNavigator`)
+
+To eliminate brittleness from PapaCambridge URL variations, Stage 1 uses a 3-tier DOM navigation hierarchy:
+
+```
+Level 1: Qualification Root
+  https://pastpapers.papacambridge.com/papers/caie/o-level?theme=lightTheme
+  https://pastpapers.papacambridge.com/papers/caie/as-and-a-level?theme=lightTheme
+    │
+    ▼ (Locate <span class="wraptext" id="..."> matching \b<subject_code>\b)
+Level 2: Subject Landing Page (Cached across sessions)
+  e.g. .../o-level-physics-5054
+    │
+    ▼ (Map session links matching <span class="wraptext" id="2026-May-June">)
+Level 3: Session File Downloads
+  e.g. .../o-level-physics-5054-2023-may-june
+    │
+    ▼ (Extract direct download links <a href="download_file.php?files=..." class="badge badge-info">)
+PDF Downloads (Downloader + Retries + Watermark Stripping)
+```
+
+1. **Level 1 (Qualification Root)**: Requests the light-themed root for O-Level or AS/A-Level.
+2. **Subject Code Locator**: Uses only the numerical subject code (`--code` / `-c`) to match `id` or text attributes of `.wraptext` spans (e.g. `Accounting - 9706` or `Physics (5054)`).
+3. **Session Persistence**: Saves the Level 2 subject URL and session links. When multiple sessions or years are scraped in sequence, the navigator reuses the cached URL without re-visiting Level 1.
+4. **Level 3 (Authoritative Downloads)**: Navigates directly to the target session page and parses download badge links (`download_file.php?files=...`).
+
+### 4.2 Anomaly-Resilient Fallback URL Builder (`URLBuilder`)
+
+If the navigator encounters unlisted routes, the pipeline falls back to multi-candidate URL testing that accounts for known PapaCambridge URL anomalies:
+- **Repeated Subject/Code Slugs** (e.g. `.../o-level-islamiyat-2058-islamiyat-20582024-oct-nov`)
+- **Duplicate Session Strings** (e.g. `.../o-level-chemistry-5070-2025-oct-nov2025-oct-nov`)
+- **Legacy Inverted Sessions** (e.g. `.../o-level-islamiyat-2058-may-june-2020`)
+- **Syllabus Aliases** (e.g. code `4024` maps `mathematics-d` to `mathematics-syllabus-d`).
+
+### 4.3 Post-Scraping Directory & Prefix Validation (`validate_scraped_sessions`)
+
+To prevent corrupted sessions from polluting downstream extraction and database ingestion:
+- Computes the expected CAIE filename prefix for each session:
+  - May/June: `{subject_code}_s{yy}` (e.g., `5054_s15`)
+  - Oct/Nov: `{subject_code}_w{yy}` (e.g., `5054_w15`)
+  - Feb/March: `{subject_code}_m{yy}` (e.g., `0580_m22`)
+- Automatically validates all downloaded files in every scraped session folder.
+- If any session folder contains non-matching PDFs, the corrupted session directory is automatically deleted, and the failure is logged.
+- Can also be invoked manually on existing directories via `edgenie-scraper validate`.
 
 ---
 
@@ -200,6 +244,17 @@ The `MarkHierarchyValidator` enforces Cambridge examination rules:
 4. Trailing indicators (`[Total: N]`) are stripped from question stem text.
 5. MCQ questions are strictly assigned 1 mark.
 
+### 5.5 Job Timeout Resilience & Playground Endpoint Recovery
+
+If polling of an Unstructured.io Transform job exceeds `max_poll_time` (e.g. 600s):
+1. `JobTimeoutError` captures the `job_id` and elapsed polling time.
+2. The job is automatically recorded into `timed_out_jobs.json` with metadata (`pdf_path`, `category`, `output_dir`).
+3. The pipeline queries the playground endpoint directly:
+   `https://transform.unstructured.io/playground/jobs/{job_id}?output=elements`
+4. Once retrieved, `complete_pipeline_work()` executes marks reconciliation, PyMuPDF visual cropping, manifest creation, visual linking into question records, and canonical JSON output.
+5. In batch mode (`extract-dir`), timed-out jobs are recorded during the run and automatically re-checked for endpoint recovery at the end of the batch pass.
+6. Dedicated recovery commands (`recover-job` and `recover-timed-out`) allow manual or automated catch-up at any time without re-spending API extraction credits.
+
 ---
 
 ## 6. Stage 3 — PostgreSQL Ingestion (Relational + JSONB) & Firebase CDN
@@ -230,50 +285,121 @@ The `MarkHierarchyValidator` enforces Cambridge examination rules:
 
 ## 8. CLI Command Reference & Workflow
 
-### Unified Extraction Commands
+### 8.1 Scraper Commands (`edgenie-scraper`)
+
+The scraper uses `--code` (`-c`) as the only mandatory parameter. Level and subject name are resolved automatically.
 
 ```bash
-# Minimal command (auto-discovers syllabus from syllabi/ by subject code)
-edgenie-unified extract-visuals-text-and-classify \
-    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf
+# ── Single Session Scraping ──────────────────────────────────────────────────
+# Scrapes only the specified year and session for subject code 5054
+edgenie-scraper scrape --code 5054 --year 2023 --session jun
 
-# With explicit syllabus CSV
-edgenie-unified extract-visuals-text-and-classify \
-    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf \
-    --syllabus syllabi/PHYSICS_5054.csv
+# ── Complete Directory Scraping (Multi-Year / Multi-Session) ─────────────────
+# Scrapes all specified sessions across the full year range
+edgenie-scraper scrape \
+    --code 5054 \
+    --year-start 2015 \
+    --year-end 2024 \
+    --session jun \
+    --session nov
 
-# Force re-extraction (bypassing local cache)
-edgenie-unified extract-visuals-text-and-classify \
-    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf \
-    --force
+# Force re-download even if files already exist on disk
+edgenie-scraper scrape --code 5054 --year 2023 --session jun --force
 
-# Custom DPI and type override
-edgenie-unified extract-visuals-text-and-classify \
-    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_12.pdf \
-    --type mcq --dpi 300
+# Dry-run mode (discovers links and reports targets without downloading)
+edgenie-scraper scrape --code 5054 --year 2023 --session jun --dry-run
+
+# ── Session Prefix Validation & Pruning ──────────────────────────────────────
+# Validates CAIE filename prefixes (e.g. 5054_s23, 5054_w23) and deletes corrupted session dirs
+edgenie-scraper validate --code 5054 --year-start 2015 --year-end 2024
+
+# ── Directory Listing & Inspection ───────────────────────────────────────────
+# Lists downloaded files, manifests, sizes, and paper types
+edgenie-scraper list-papers --code 5054 --year 2023
 ```
 
-*(Note: `edgenie-extractor extract-visuals-text-and-classify` is an identical entry point.)*
+---
 
-### Ingestion Commands
+### 8.2 Unified Extraction & Classification Commands (`edgenie-unified`)
+
+#### A. Single PDF Commands (`extract` / `extract-visuals-text-and-classify`)
 
 ```bash
-# Initialize PostgreSQL tables, foreign keys, and indexes
+# Single exam paper (auto-discovers syllabus CSV from syllabi/ by subject code)
+edgenie-unified extract --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf
+
+# With explicit syllabus CSV and force re-extraction (bypassing local cache)
+edgenie-unified extract \
+    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf \
+    --syllabus syllabi/PHYSICS_5054.csv \
+    --force
+
+# Custom DPI and paper type override
+edgenie-unified extract \
+    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_12.pdf \
+    --type mcq \
+    --dpi 300
+```
+
+*(Note: `edgenie-unified extract-visuals-text-and-classify` and `edgenie-extractor extract` are identical aliases.)*
+
+#### B. Complete Directory Batch Extraction Commands (`extract-dir`)
+
+```bash
+# Batch extract all exam papers in a single session directory
+edgenie-unified extract-dir --dir pipeline/storage/5054/2023/jun/
+
+# Batch extract all exam papers across an entire subject directory tree
+edgenie-unified extract-dir --dir pipeline/storage/5054/
+
+# Force re-extraction across directory with custom DPI
+edgenie-unified extract-dir --dir pipeline/storage/5054/2023/jun/ --force --dpi 300
+```
+
+> **Directory Processing Features**:
+> - Recursively searches directory tree for PDF files.
+> - Automatically excludes non-exam files (`_er`, `_gt`, `_ci`, `_ir`, `_sy`).
+> - Processes only exam Question Papers (`_qp_`) and Mark Schemes (`_ms_`).
+> - Auto-detects paper categories and resolves corresponding syllabus CSV per paper.
+> - Outputs a comprehensive summary table showing extraction status, records, and visuals.
+
+#### C. Job Timeout Recovery Commands (`recover-job`, `recover-timed-out`)
+
+```bash
+# Recover a specific timed-out job via playground endpoint and complete processing
+edgenie-unified recover-job --job-id b60382ec-1f13-4a8d-9946-d7171d977e9a --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf
+
+# Recover all recorded timed-out jobs from timed_out_jobs.json
+edgenie-unified recover-timed-out --file timed_out_jobs.json
+```
+
+---
+
+### 8.3 Ingestion Commands (`edgenie-ingestor`)
+
+#### A. Single Paper / JSON Commands (`db-paper`)
+
+```bash
+# Ingest single paper JSON and visual manifest into PostgreSQL
+edgenie-ingestor db-paper --json pipeline/storage/5054/2023/jun/5054_s23_qp_22.json
+```
+
+#### B. Complete Directory Commands (`db-dir`, `storage-dir`, `full-sync`)
+
+```bash
+# Initialize PostgreSQL tables, foreign keys, and GIN indexes
 edgenie-ingestor db-init
 
-# Ingest single paper JSON and visual manifest
-edgenie-ingestor db-paper --json pipeline/storage/5054/2023/jun/5054_s23_qp_22.json
-
-# Ingest an entire subject directory tree
+# Ingest an entire subject directory tree into PostgreSQL
 edgenie-ingestor db-dir --dir pipeline/storage/5054
 
-# View current database record counts
+# View current database record counts across all relational tables
 edgenie-ingestor db-stats
 
-# (Optional) Upload visuals and PDFs to Firebase Storage
+# (Optional) Upload visuals and PDFs in a directory to Firebase Storage CDN
 edgenie-ingestor storage-dir --dir pipeline/storage/5054
 
-# (Optional) Full sync (Firebase upload + PostgreSQL ingestion)
+# (Optional) Complete full sync (Firebase CDN upload + PostgreSQL ingestion)
 edgenie-ingestor full-sync --dir pipeline/storage/5054
 ```
 
@@ -338,3 +464,4 @@ edgenie-ingestor full-sync --dir pipeline/storage/5054
 | **2.0.0** | 2026-08-24 | Updated Stage 1 with `SubjectRegistry` (58 O-Level / 115 A-Level subjects). |
 | **2.4.0** | 2026-09-01 | PostgreSQL (Relational + JSONB) Architecture & Decoupled Ingestion. |
 | **3.0.0** | 2026-10-11 | **Unified 3-in-1 Pipeline Architecture**: Unified text extraction, visual bounding box extraction, and syllabus classification into a single Unstructured.io Transform API job (`client.parse.run` with strict schema + syllabus prompt) and PyMuPDF local cropping. Eliminated separate text extractor, separate visual detector, and separate classifier agents. Removed obsolete `pipeline/extractor/`, `pipeline/visuals/`, and `pipeline/syllabus/` directories. Added 48 comprehensive unit tests for core subjects in `tests/test_unified_pipeline.py`. Consolidated all CLI extraction under `edgenie-unified` and `edgenie-extractor`. |
+| **3.1.0** | 2026-10-12 | **Scraping Navigation Engine, Prefix Validation & Batch Directory Extraction**: Introduced hierarchical `PapaCambridgeNavigator` traversing Level 1 (qualification root), Level 2 (subject session map), and Level 3 (direct download badge links) with subject code locator matching (`--code` is now the only required scraper CLI parameter). Added multi-pattern URL anomaly builder and automated post-scraping session prefix validation (`validator.py` and `edgenie-scraper validate`) that prunes corrupted/mismatched session folders. Added `edgenie-unified extract-dir` for recursive directory-level batch extraction with automatic non-exam file exclusion (`_er`, `_gt`, etc.), alongside `extract` single PDF alias. Updated full documentation across `README.md` and `IMPLEMENTATION.md`. |

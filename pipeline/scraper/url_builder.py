@@ -93,10 +93,7 @@ class URLBuilder:
             urls.append(f"{cls.BASE_URL}/{cls.BASE_PAPERS_PATH}/{fallback_part}")
 
         # Deduplicate while preserving order
-        seen = set()
-        unique_urls = [u for u in urls if not (u in seen or seen.add(u))]
-
-        return unique_urls
+        return list(dict.fromkeys(urls))
 
     @classmethod
     def build_download_url(cls, filename: str) -> str:

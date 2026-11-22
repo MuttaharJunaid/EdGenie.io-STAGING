@@ -17,11 +17,8 @@ Implements a 3-tier hierarchy crawler:
 4. Re-uses the saved subject URL to navigate back and process subsequent sessions.
 """
 
-from __future__ import annotations
-
 import logging
 import re
-from typing import Any
 from urllib.parse import urljoin
 
 import requests
@@ -29,7 +26,6 @@ from bs4 import BeautifulSoup
 
 from pipeline.config import settings
 from pipeline.scraper.models import ScrapeTarget
-from pipeline.scraper.validator import get_expected_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +121,7 @@ class PapaCambridgeNavigator:
             else:
                 candidate_levels = ["o-level", "as-and-a-level"]
 
-        seen_lvls = set()
-        unique_candidate_levels = [l for l in candidate_levels if not (l in seen_lvls or seen_lvls.add(l))]
+        unique_candidate_levels = list(dict.fromkeys(candidate_levels))
 
         found_url = None
         for lvl in unique_candidate_levels:
@@ -146,7 +141,8 @@ class PapaCambridgeNavigator:
             # Strictly find the subject locator on the basis of subject code
             for span in soup.find_all("span", class_="wraptext"):
                 text = span.get_text(strip=True)
-                span_id = span.get("id", "").strip()
+                raw_span_id = span.get("id")
+                span_id = str(raw_span_id).strip() if raw_span_id else ""
 
                 code_match = bool(
                     re.search(rf"\b{clean_code}\b", text) or re.search(rf"\b{clean_code}\b", span_id)
@@ -155,7 +151,8 @@ class PapaCambridgeNavigator:
                 if code_match:
                     a_tag = span.find_parent("a")
                     if a_tag and a_tag.get("href"):
-                        found_url = urljoin(self.BASE_URL, a_tag["href"].strip())
+                        href_str = str(a_tag["href"]).strip()
+                        found_url = urljoin(self.BASE_URL, href_str)
                         logger.info(f"Located subject locator '{text}' using code '{clean_code}' -> {found_url}")
                         break
 
@@ -192,7 +189,8 @@ class PapaCambridgeNavigator:
             if y is not None and s is not None:
                 a_tag = span.find_parent("a")
                 if a_tag and a_tag.get("href"):
-                    session_url = urljoin(self.BASE_URL, a_tag["href"].strip())
+                    href_str = str(a_tag["href"]).strip()
+                    session_url = urljoin(self.BASE_URL, href_str)
                     sessions_map[(y, s)] = session_url
                     logger.debug(f"Mapped session: ({y}, '{s}') -> {session_url}")
 
@@ -256,14 +254,14 @@ class PapaCambridgeNavigator:
         pdf_urls: set[str] = set()
 
         for a in soup.find_all("a", href=True):
-            href = a["href"].strip()
+            href = str(a["href"]).strip()
             # 1. Official download button locator
             if "download_file.php?files=" in href:
                 raw_file_url = href.split("download_file.php?files=")[-1].strip()
                 if raw_file_url.endswith(".pdf"):
                     pdf_urls.add(raw_file_url)
             # 2. Badge button locator
-            elif href.endswith(".pdf") and any("badge-info" in cls for cls in a.get("class", [])):
+            elif href.endswith(".pdf") and any("badge-info" in cls for cls in (a.get("class") or [])):
                 full_url = urljoin(self.BASE_URL, href)
                 pdf_urls.add(full_url)
             # 3. Direct PDF download link

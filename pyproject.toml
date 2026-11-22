@@ -11,35 +11,29 @@ requires-python = ">=3.12"
 license = {text = "Proprietary"}
 
 dependencies = [
-    # HTTP & Scraping
+    # HTTP & Scraping (Stage 1)
     "requests>=2.32",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
-    "playwright>=1.40",
 
     # CLI
     "typer[all]>=0.12",
     "rich>=13.0",
 
-    # Data validation
+    # Data validation & Settings
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
 
     # Utilities
     "tenacity>=9.0",
 
-    # PDF & Data processing
+    # PDF Processing (PyMuPDF)
     "pymupdf>=1.24.0",
-    "pandas>=2.0.0",
 
-    # AI & LLM (Extraction + Classification)
-    "google-genai>=0.7.0",
-    "openai>=1.0.0",
+    # Unified 3-in-1 Pipeline (Stage 2: Unstructured.io Transform API)
+    "unstructured-transform-client>=0.18.0",
 
-    # Image processing (Stage 3)
-    "Pillow>=10.0",
-
-    # Database & Cloud Storage (Stage 4 — Ingestion & Assets)
+    # Database & Cloud Storage (Stage 3 — Ingestion & CDN Hosting)
     "psycopg[binary]>=3.1",
     "firebase-admin>=6.0.0",
 ]
@@ -69,6 +63,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -78,3 +73,11 @@ addopts = "-v --tb=short"
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "firebase_admin.*",
+    "unstructured_transform_client.*",
+]
+ignore_missing_imports = true
+

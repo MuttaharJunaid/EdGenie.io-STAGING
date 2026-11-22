@@ -23,11 +23,13 @@ from pathlib import Path
 from typing import Any
 
 import pymupdf as fitz
+import requests
 from unstructured_transform_client import TransformClient
 
 from pipeline.config import settings
+from pipeline.unified.manifest_patcher import patch_records_with_manifest
 from pipeline.unified.marks_validator import MarkHierarchyValidator
-from pipeline.unified.paper_type_detector import PaperCategory
+from pipeline.unified.paper_type_detector import PaperCategory, PaperTypeDetector
 from pipeline.unified.schemas import (
     EssayAnswersContainer,
     EssayQuestionsContainer,
@@ -36,10 +38,17 @@ from pipeline.unified.schemas import (
     to_strict_openai_schema,
 )
 from pipeline.unified.syllabus_loader import SyllabusLoader
-from pipeline.unified.manifest_patcher import patch_records_with_manifest
-
 
 logger = logging.getLogger(__name__)
+
+
+class JobTimeoutError(TimeoutError):
+    """Raised when polling an Unstructured.io job exceeds max_poll_time, carrying the job ID."""
+
+    def __init__(self, job_id: str, message: str, elapsed: float) -> None:
+        super().__init__(message)
+        self.job_id = job_id
+        self.elapsed = elapsed
 
 # ── Regex patterns (same as UnstructuredVisualExtractor) ─────────────────────
 Q_ROOT_RE = re.compile(
@@ -50,6 +59,81 @@ PART_RE = re.compile(r"(?:^|\s)(?:\*{0,2})\(([a-h])\)(?:\*{0,2})", re.IGNORECASE
 SUB_PART_RE = re.compile(r"(?:^|\s)(?:\*{0,2})\(([ivx]+)\)(?:\*{0,2})", re.IGNORECASE)
 FIG_CAP_RE = re.compile(r"(?:Fig\.|Figure)\s*(\d+)[\.\_](\d+)", re.IGNORECASE)
 TABLE_CAP_RE = re.compile(r"Table\s*(\d+)[\.\_](\d+)", re.IGNORECASE)
+
+
+def get_next_run_number(base_dir: Path | str | None = None) -> int:
+    """
+    Determines the next pipeline run number by inspecting existing timed_out_jobs files
+    and the persistent .pipeline_run_counter file. Monotonically increments.
+    """
+    if base_dir is None:
+        base_dir = Path.cwd()
+    base_dir = Path(base_dir)
+
+    pattern = re.compile(r"^timed_out_jobs(?:_run)?_(\d+)\.json$", re.IGNORECASE)
+    existing_nums: list[int] = []
+    if base_dir.exists():
+        for p in base_dir.glob("timed_out_jobs*.json"):
+            m = pattern.match(p.name)
+            if m:
+                existing_nums.append(int(m.group(1)))
+
+    counter_file = base_dir / ".pipeline_run_counter"
+    counter_val = 0
+    if counter_file.exists():
+        try:
+            counter_val = int(counter_file.read_text().strip())
+        except Exception:
+            pass
+
+    next_num = max(existing_nums + [counter_val], default=0) + 1
+    try:
+        counter_file.write_text(str(next_num))
+    except Exception:
+        pass
+    return next_num
+
+
+def resolve_timed_out_jobs_path(
+    run_number: int | str | None = None,
+    suffix: str | None = None,
+    explicit_file: str | Path | None = None,
+    auto_increment: bool = False,
+    base_dir: Path | str | None = None,
+) -> Path:
+    """
+    Resolves the target Path for a run's timed_out_jobs JSON file.
+
+    Priority:
+    1. explicit_file: user-provided path or filename
+    2. suffix: user-provided custom suffix (e.g. '1' -> timed_out_jobs_1.json, 'run_1' -> timed_out_jobs_run_1.json)
+    3. run_number: run number (e.g. 1 -> timed_out_jobs_run_1.json)
+    4. auto_increment=True: automatically fetches next run number -> timed_out_jobs_run_<next>.json
+    5. Fallback: timed_out_jobs.json
+    """
+    if base_dir is None:
+        base_dir = Path.cwd()
+    base_dir = Path(base_dir)
+
+    if explicit_file is not None:
+        p = Path(explicit_file)
+        return p if p.is_absolute() else base_dir / p
+
+    if suffix is not None:
+        cleaned_suffix = str(suffix).strip().lstrip("_")
+        return base_dir / f"timed_out_jobs_{cleaned_suffix}.json"
+
+    if run_number is not None:
+        rn_str = str(run_number).strip().lstrip("_")
+        if rn_str.lower().startswith("run_") or rn_str.lower().startswith("run"):
+            return base_dir / f"timed_out_jobs_{rn_str}.json"
+        return base_dir / f"timed_out_jobs_run_{rn_str}.json"
+
+    if auto_increment:
+        next_run = get_next_run_number(base_dir)
+        return base_dir / f"timed_out_jobs_run_{next_run}.json"
+
+    return base_dir / "timed_out_jobs.json"
 
 
 class UnifiedPipeline:
@@ -71,6 +155,10 @@ class UnifiedPipeline:
         poll_interval: float = 5.0,
         max_poll_time: float = 600.0,
         extract_tables: bool = True,
+        timed_out_jobs_file: Path | str | None = None,
+        run_number: int | str | None = None,
+        suffix: str | None = None,
+        auto_increment: bool = False,
     ) -> None:
         self.api_key = (
             api_key
@@ -90,6 +178,26 @@ class UnifiedPipeline:
         self.max_poll_time = max_poll_time or getattr(settings, "unstructured_max_poll_time", 600.0)
         self.extract_tables = extract_tables if extract_tables is not None else getattr(settings, "extract_tables", True)
         self._client: TransformClient | None = None
+        self.timed_out_jobs_file: Path = resolve_timed_out_jobs_path(
+            run_number=run_number,
+            suffix=suffix,
+            explicit_file=timed_out_jobs_file,
+            auto_increment=auto_increment,
+        )
+        self.timed_out_jobs: list[dict[str, Any]] = []
+        if self.timed_out_jobs_file.exists():
+            self._load_timed_out_jobs()
+
+    def init_timed_out_jobs_file(self) -> Path:
+        """Ensure the timed-out jobs file exists on disk with an initial empty JSON array."""
+        if not self.timed_out_jobs_file.exists():
+            try:
+                self.timed_out_jobs_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.timed_out_jobs_file, "w", encoding="utf-8") as f:
+                    json.dump([], f, indent=2)
+            except Exception as exc:
+                logger.warning("Could not initialize %s: %s", self.timed_out_jobs_file, exc)
+        return self.timed_out_jobs_file
 
     # ── Client ────────────────────────────────────────────────────────────────
 
@@ -107,19 +215,27 @@ class UnifiedPipeline:
             )
         return self._client
 
-    # ── PDF Pruning (blank page removal) ─────────────────────────────────────
+    # ── PDF Pruning (blank page removal & page mapping) ─────────────────────
 
     @staticmethod
-    def _prune_pdf_bytes(pdf_path: Path) -> bytes | None:
-        """Strip blank / BLANK PAGE pages before upload to cut cloud processing time."""
+    def _get_prune_plan(pdf_path: Path) -> tuple[list[int], dict[int, int]]:
+        """
+        Calculates which pages to keep and the mapping from pruned 1-based page numbers
+        to original 1-based page numbers.
+        Returns:
+            (kept_pages_0_based, page_map: {pruned_page_1_based: original_page_1_based})
+        """
         try:
             doc = fitz.open(str(pdf_path))
-            if len(doc) <= 2:
-                return pdf_path.read_bytes()
+            num_pages = len(doc)
+            if num_pages <= 2:
+                doc.close()
+                return list(range(num_pages)), {p: p for p in range(1, num_pages + 1)}
 
-            pruned = fitz.open()
-            pruned_count = 0
-            for pno in range(len(doc)):
+            kept_pages: list[int] = []
+            page_map: dict[int, int] = {}
+            pruned_idx = 1
+            for pno in range(num_pages):
                 page = doc[pno]
                 text = page.get_text().strip()
                 if pno > 0:
@@ -131,19 +247,63 @@ class UnifiedPipeline:
                     ))
                     if (not text and not page.get_images() and not page.get_drawings()) \
                             or (has_blank and not has_marks and not has_q):
-                        pruned_count += 1
                         continue
-                pruned.insert_pdf(doc, from_page=pno, to_page=pno)
+                kept_pages.append(pno)
+                page_map[pruned_idx] = pno + 1
+                pruned_idx += 1
+            doc.close()
+            return kept_pages, page_map
+        except Exception as exc:
+            logger.debug("Failed to calculate prune plan for %s: %s", pdf_path, exc)
+            return [], {}
 
-            if pruned_count > 0 and len(pruned) > 0:
+    @classmethod
+    def _prune_pdf_bytes(cls, pdf_path: Path) -> bytes | None:
+        """Strip blank / BLANK PAGE pages before upload to cut cloud processing time."""
+        try:
+            doc = fitz.open(str(pdf_path))
+            kept_pages, _ = cls._get_prune_plan(pdf_path)
+            pruned_count = len(doc) - len(kept_pages)
+            if pruned_count > 0 and len(kept_pages) > 0:
+                pruned = fitz.open()
+                for pno in kept_pages:
+                    pruned.insert_pdf(doc, from_page=pno, to_page=pno)
                 logger.info(
                     "Pruned %d blank page(s) from %s (%d/%d pages submitted)",
                     pruned_count, pdf_path.name, len(pruned), len(doc),
                 )
-                return pruned.tobytes()
+                res = bytes(pruned.tobytes())
+                pruned.close()
+                doc.close()
+                return res
+            doc.close()
         except Exception as exc:
             logger.debug("PDF pruning bypassed for %s: %s", pdf_path.name, exc)
         return None
+
+    @classmethod
+    def _remap_elements_pages(
+        cls,
+        elements: list[dict[str, Any]],
+        page_map: dict[int, int],
+    ) -> list[dict[str, Any]]:
+        """
+        Translates metadata['page_number'] of each layout element from pruned page numbers
+        to original PDF page numbers if not already remapped.
+        """
+        if not elements or not page_map:
+            return elements
+
+        for el in elements:
+            meta = el.get("metadata")
+            if not isinstance(meta, dict) or meta.get("_pages_remapped"):
+                continue
+            pruned_pno = meta.get("page_number")
+            if isinstance(pruned_pno, int) and pruned_pno in page_map:
+                meta["pruned_page_number"] = pruned_pno
+                meta["page_number"] = page_map[pruned_pno]
+                meta["_pages_remapped"] = True
+        return elements
 
     # ── Schema + Prompt Builder ───────────────────────────────────────────────
 
@@ -283,11 +443,16 @@ class UnifiedPipeline:
         start = time.time()
         while time.time() - start < self.max_poll_time:
             time.sleep(self.poll_interval)
-            job_status = client.jobs.get(
-                job_id,
-                output="elements",
-                include=["coordinates", "table_html"],
-            )
+            try:
+                job_status = client.jobs.get(
+                    job_id,
+                    output="elements",
+                    include=["coordinates", "table_html"],
+                )
+            except Exception as poll_exc:
+                logger.warning("Transient error during job %s poll: %s. Retrying...", job_id, poll_exc)
+                continue
+
             raw_state = getattr(job_status, "status", "")
             state = str(raw_state.value if hasattr(raw_state, "value") else raw_state).lower()
             elapsed = time.time() - start
@@ -301,9 +466,246 @@ class UnifiedPipeline:
                     f"Unstructured.io job {job_id} failed: state={state}, error={err}"
                 )
 
-        raise TimeoutError(
-            f"Unstructured.io job {job_id} timed out after {self.max_poll_time}s"
+        elapsed = time.time() - start
+        raise JobTimeoutError(
+            job_id=str(job_id),
+            message=f"Unstructured.io job {job_id} timed out after {elapsed:.1f}s",
+            elapsed=elapsed,
         )
+
+    # ── Timed-Out Job Tracking & Playground Endpoint Recovery ────────────────
+
+    def _save_timed_out_jobs(self) -> None:
+        """Persist timed-out jobs to timed_out_jobs.json."""
+        try:
+            with open(self.timed_out_jobs_file, "w", encoding="utf-8") as f:
+                json.dump(self.timed_out_jobs, f, indent=2)
+        except Exception as exc:
+            logger.warning("Could not persist timed_out_jobs.json: %s", exc)
+
+    def _load_timed_out_jobs(self) -> list[dict[str, Any]]:
+        """Load timed-out jobs from timed_out_jobs.json if exists."""
+        if self.timed_out_jobs_file.exists():
+            try:
+                with open(self.timed_out_jobs_file, encoding="utf-8") as f:
+                    self.timed_out_jobs = json.load(f)
+            except Exception as exc:
+                logger.warning("Could not load timed_out_jobs.json: %s", exc)
+        return self.timed_out_jobs
+
+    def record_timed_out_job(
+        self,
+        job_id: str,
+        pdf_path: Path,
+        category: PaperCategory,
+        meta: dict[str, Any],
+        output_dir: Path,
+        syllabus_csv: Path | None = None,
+    ) -> dict[str, Any]:
+        """Record details of a timed-out job in memory and on disk."""
+        record = {
+            "job_id": job_id,
+            "pdf_path": str(Path(pdf_path).resolve()),
+            "pdf_name": Path(pdf_path).name,
+            "category": category.value if hasattr(category, "value") else str(category),
+            "meta": meta,
+            "output_dir": str(Path(output_dir).resolve()),
+            "syllabus_csv": str(Path(syllabus_csv).resolve()) if syllabus_csv else None,
+            "timed_out_at": time.time(),
+            "status": "timed_out",
+        }
+        existing = next((j for j in self.timed_out_jobs if j.get("job_id") == job_id), None)
+        if existing:
+            existing.update(record)
+        else:
+            self.timed_out_jobs.append(record)
+        self._save_timed_out_jobs()
+        return record
+
+    def mark_timed_out_job_completed(self, job_id: str) -> None:
+        """Mark a job as completed in the timed-out registry."""
+        for j in self.timed_out_jobs:
+            if j.get("job_id") == job_id:
+                j["status"] = "completed"
+                j["completed_at"] = time.time()
+        self._save_timed_out_jobs()
+
+    def fetch_job_result_from_endpoint(
+        self,
+        job_id: str,
+        timeout_seconds: float = 60.0,
+        max_retries: int = 3,
+        retry_delay: float = 5.0,
+    ) -> Any | None:
+        """
+        Fetch the result of a job using the Unstructured playground endpoint:
+        https://transform.unstructured.io/playground/jobs/{job_id}?output=elements
+
+        Falls back to the v2 API endpoint and SDK client if needed.
+        """
+        playground_url = f"https://transform.unstructured.io/playground/jobs/{job_id}?output=elements"
+        server_base = str(self.server_url or "https://transform.unstructured.io").rstrip("/")
+        api_url = f"{server_base}/api/v2/jobs/{job_id}?output=elements"
+
+        api_key = self.api_key or os.environ.get("UNSTRUCTURED_API_KEY", "")
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "EdGenie-Unified-Pipeline/3.1.0",
+        }
+        if api_key:
+            headers["unstructured-api-key"] = api_key
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        for attempt in range(1, max_retries + 1):
+            # 1. Primary target: Playground endpoint
+            try:
+                logger.info(
+                    "Querying playground endpoint for job %s (attempt %d/%d): %s",
+                    job_id, attempt, max_retries, playground_url,
+                )
+                resp = requests.get(playground_url, headers=headers, timeout=timeout_seconds)
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        if self._is_job_ready(data):
+                            logger.info("Playground endpoint returned ready result for job %s", job_id)
+                            return data
+                        logger.info("Job %s on playground endpoint not ready yet (status=%s)", job_id, data.get("status"))
+                    except Exception as json_err:
+                        logger.debug("Failed to decode JSON from playground response: %s", json_err)
+                else:
+                    logger.debug("Playground endpoint status %d for job %s", resp.status_code, job_id)
+            except Exception as exc:
+                logger.warning("Error querying playground endpoint for job %s: %s", job_id, exc)
+
+            # 2. Resilient fallback: API v2 endpoint
+            try:
+                resp = requests.get(api_url, headers=headers, timeout=timeout_seconds)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if self._is_job_ready(data):
+                        logger.info("API v2 endpoint returned ready result for job %s", job_id)
+                        return data
+            except Exception as exc:
+                logger.debug("Error querying API v2 endpoint for job %s: %s", job_id, exc)
+
+            # 3. Resilient fallback: SDK client
+            try:
+                client = self._get_client()
+                job_status = client.jobs.get(
+                    job_id,
+                    output="elements",
+                    include=["coordinates", "table_html"],
+                )
+                if self._is_job_ready(job_status):
+                    logger.info("SDK client returned ready result for job %s", job_id)
+                    return job_status
+            except Exception as exc:
+                logger.debug("Error querying SDK jobs.get for job %s: %s", job_id, exc)
+
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+
+        return None
+
+    @staticmethod
+    def _is_job_ready(result: Any) -> bool:
+        """Check whether a job result payload has completed parsing."""
+        if result is None:
+            return False
+
+        if isinstance(result, dict):
+            status = str(result.get("status") or result.get("state") or "").lower()
+            if any(s in status for s in ("completed", "successful", "done")):
+                return True
+            inner_res = result.get("result")
+            if isinstance(inner_res, dict):
+                inner_status = str(inner_res.get("status") or "").lower()
+                if any(s in inner_status for s in ("completed", "successful", "done")):
+                    return True
+                if inner_res.get("elements") or inner_res.get("extracted_data"):
+                    return True
+            if result.get("elements") or result.get("extracted_data"):
+                return True
+            return False
+
+        if isinstance(result, list):
+            return len(result) > 0
+
+        status_val = getattr(result, "status", None)
+        status_str = str(getattr(status_val, "value", status_val) or "").lower()
+        if any(s in status_str for s in ("completed", "successful", "done")):
+            return True
+        parse_res = getattr(result, "result", None)
+        if parse_res and (getattr(parse_res, "elements", None) or getattr(parse_res, "extracted_data", None)):
+            return True
+
+        return False
+
+    def recover_timed_out_jobs(
+        self,
+        jobs_file: Path | str | None = None,
+        max_retries_per_job: int = 3,
+    ) -> list[dict[str, Any]]:
+        """
+        Recover and complete the remaining work for all noted timed-out jobs
+        using the playground endpoint:
+        https://transform.unstructured.io/playground/jobs/{job_id}?output=elements
+        """
+        if jobs_file is not None:
+            self.timed_out_jobs_file = Path(jobs_file)
+        self._load_timed_out_jobs()
+
+        recovered_results: list[dict[str, Any]] = []
+        pending_jobs = [j for j in self.timed_out_jobs if j.get("status") == "timed_out"]
+        if not pending_jobs:
+            logger.info("No timed-out jobs pending recovery.")
+            return []
+
+        logger.info("Found %d timed-out job(s) to recover.", len(pending_jobs))
+
+        for job in pending_jobs:
+            job_id = job["job_id"]
+            pdf_path = Path(job["pdf_path"])
+            output_dir = Path(job["output_dir"])
+            category_val = job.get("category")
+            category = None
+            if category_val:
+                try:
+                    category = PaperCategory(category_val)
+                except Exception:
+                    pass
+
+            logger.info("Attempting recovery for job %s ('%s')...", job_id, pdf_path.name)
+            job_result = self.fetch_job_result_from_endpoint(
+                job_id,
+                max_retries=max_retries_per_job,
+            )
+
+            if job_result is not None:
+                try:
+                    work_res = self.complete_pipeline_work(
+                        pdf_path=pdf_path,
+                        output_dir=output_dir,
+                        job_result=job_result,
+                        category=category,
+                    )
+                    self.mark_timed_out_job_completed(job_id)
+                    recovered_results.append({
+                        "job_id": job_id,
+                        "pdf_name": pdf_path.name,
+                        "status": "recovered",
+                        "records_count": len(work_res.get("records", [])),
+                        "manifest_count": len(work_res.get("manifest", [])),
+                        "json_path": str(work_res.get("json_path", "")),
+                    })
+                    logger.info("Successfully recovered and completed work for job %s!", job_id)
+                except Exception as exc:
+                    logger.error("Failed completing work for recovered job %s: %s", job_id, exc)
+            else:
+                logger.warning("Job %s could not be recovered from endpoint yet.", job_id)
+
+        return recovered_results
 
     # ── Result Parsing: Structured Text Records ───────────────────────────────
 
@@ -311,18 +713,24 @@ class UnifiedPipeline:
     def _parse_text_records(job_result: Any) -> list[dict[str, Any]]:
         """
         Extract the structured question/answer records from a completed job result.
-        Handles both ParseResult (direct) and JobResult (.result attribute).
+        Handles both ParseResult (direct), JobResult (.result attribute),
+        and dictionary payloads from the endpoint.
         """
-        # JobResult wraps ParseResult in .result
-        parse_result = getattr(job_result, "result", job_result)
+        parse_result = getattr(job_result, "result", None)
+        if parse_result is None and isinstance(job_result, dict):
+            parse_result = job_result.get("result", job_result)
+        elif parse_result is None:
+            parse_result = job_result
 
         ext_data = getattr(parse_result, "extracted_data", None)
         if ext_data is None and isinstance(parse_result, dict):
-            ext_data = parse_result.get("extracted_data")
+            ext_data = parse_result.get("extracted_data") or parse_result.get("data")
+        if not ext_data and isinstance(job_result, dict):
+            ext_data = job_result.get("extracted_data") or job_result.get("data")
         if not ext_data:
             return []
 
-        first = ext_data[0]
+        first = ext_data[0] if isinstance(ext_data, list) and ext_data else ext_data
         extracted_obj = getattr(first, "data", first)
         if isinstance(extracted_obj, dict) and "data" in extracted_obj:
             extracted_obj = extracted_obj["data"]
@@ -359,10 +767,20 @@ class UnifiedPipeline:
         Extract the flat list of layout elements from the completed job result.
         Elements carry bounding-box coordinates used for PyMuPDF snipping.
         """
-        parse_result = getattr(job_result, "result", job_result)
+        parse_result = getattr(job_result, "result", None)
+        if parse_result is None and isinstance(job_result, dict):
+            parse_result = job_result.get("result", job_result)
+        elif parse_result is None:
+            parse_result = job_result
+
         elements_raw = getattr(parse_result, "elements", None)
         if elements_raw is None and isinstance(parse_result, dict):
-            elements_raw = parse_result.get("elements", [])
+            elements_raw = parse_result.get("elements")
+        if elements_raw is None and isinstance(job_result, dict):
+            elements_raw = job_result.get("elements")
+        elif elements_raw is None and isinstance(job_result, list):
+            elements_raw = job_result
+
         if not elements_raw:
             return []
 
@@ -389,6 +807,9 @@ class UnifiedPipeline:
         Use bounding boxes from layout elements to crop and save visual assets
         with PyMuPDF. Returns a manifest list identical to UnstructuredVisualExtractor.
         """
+        _, page_map = self._get_prune_plan(pdf_path)
+        elements = self._remap_elements_pages(elements, page_map)
+
         doc = fitz.open(str(pdf_path))
         num_pages = len(doc)
         manifest: list[dict[str, Any]] = []
@@ -505,7 +926,7 @@ class UnifiedPipeline:
                     target_type = "sub_part"
                     target_label = f"{current_part}({current_sub_part})"
                     tag_str = f"sub_part_{target_label}"
-                    part_label: str | None = target_label
+                    part_label = target_label
                 elif current_part:
                     target_type = "part"
                     target_label = current_part
@@ -625,83 +1046,67 @@ class UnifiedPipeline:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def run(
+    def complete_pipeline_work(
         self,
         pdf_path: Path,
-        category: PaperCategory,
-        meta: dict[str, Any],
         output_dir: Path,
-        syllabus_csv: Path | None = None,
-        force: bool = False,
+        job_result: Any = None,
+        records: list[dict[str, Any]] | None = None,
+        elements: list[dict[str, Any]] | None = None,
+        category: PaperCategory | None = None,
     ) -> dict[str, Any]:
         """
-        Execute the unified pipeline for one PDF.
-
-        Returns a dict with:
-          "records"  – list of structured question/answer dicts
-          "manifest" – list of visual manifest entry dicts
-          "json_path"     – Path to the saved canonical JSON
-          "manifest_path" – Path to the saved manifest.json
+        Completes the remaining processing steps after receiving the job result:
+          1. Parses structured question/answer records and layout elements.
+          2. Caches raw outputs to <stem>_unified_text.json and <stem>_unified_elements.json.
+          3. Reconciles and validates marks hierarchy.
+          4. Crops diagram and table visuals using PyMuPDF and creates manifest.json.
+          5. Patches question records with cropped visual paths.
+          6. Saves canonical <stem>.json.
         """
         pdf_path = Path(pdf_path).resolve()
         output_dir = Path(output_dir).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # ── Cache check ───────────────────────────────────────────────────────
+        if category is None:
+            category = PaperTypeDetector.detect(pdf_path)
+
         cache_text = pdf_path.parent / f"{pdf_path.stem}_unified_text.json"
         cache_elements = pdf_path.parent / f"{pdf_path.stem}_unified_elements.json"
         manifest_path = output_dir / "manifest.json"
         json_path = pdf_path.with_suffix(".json")
 
-        records: list[dict[str, Any]] = []
-        elements: list[dict[str, Any]] = []
+        if records is None or elements is None:
+            if job_result is not None:
+                records = self._parse_text_records(job_result)
+                elements = self._parse_elements(job_result)
 
-        if not force and cache_text.exists() and cache_elements.exists():
-            try:
-                with open(cache_text, encoding="utf-8") as f:
-                    records = json.load(f)
-                with open(cache_elements, encoding="utf-8") as f:
-                    elements = json.load(f)
-                logger.info(
-                    "Loaded %d records and %d elements from cache for '%s'",
-                    len(records), len(elements), pdf_path.name,
-                )
-            except Exception as exc:
-                logger.warning("Cache read error: %s — re-running API call", exc)
-                records, elements = [], []
+                # Remap elements' pruned page numbers to original PDF page numbers
+                _, page_map = self._get_prune_plan(pdf_path)
+                elements = self._remap_elements_pages(elements, page_map)
 
-        if not records or not elements:
-            # ── Load syllabus ─────────────────────────────────────────────────
-            syllabus_text = ""
-            if syllabus_csv and syllabus_csv.exists():
+                # Cache raw outputs
                 try:
-                    units = SyllabusLoader.load_syllabus(syllabus_csv)
-                    syllabus_text = SyllabusLoader.format_syllabus_for_prompt(units)
-                    logger.info("Loaded syllabus: %d units from '%s'", len(units), syllabus_csv.name)
+                    with open(cache_text, "w", encoding="utf-8") as f:
+                        json.dump(records, f, indent=2, ensure_ascii=False)
+                    with open(cache_elements, "w", encoding="utf-8") as f:
+                        json.dump(elements, f, indent=2, ensure_ascii=False)
+                    logger.info("Cached unified outputs for '%s'", pdf_path.name)
                 except Exception as exc:
-                    logger.warning("Could not load syllabus '%s': %s", syllabus_csv, exc)
-
-            schema, prompt = self._build_schema_and_prompt(category, meta, syllabus_text)
-
-            # ── Upload pruned PDF ─────────────────────────────────────────────
-            pruned = self._prune_pdf_bytes(pdf_path)
-            file_input: Any = (pdf_path.name, pruned) if pruned else pdf_path
-
-            # ── Single API call ───────────────────────────────────────────────
-            job_result = self._submit_and_poll(file_input, schema, prompt, pdf_path.name)
-
-            records = self._parse_text_records(job_result)
-            elements = self._parse_elements(job_result)
-
-            # ── Cache raw outputs ─────────────────────────────────────────────
-            try:
-                with open(cache_text, "w", encoding="utf-8") as f:
-                    json.dump(records, f, indent=2, ensure_ascii=False)
-                with open(cache_elements, "w", encoding="utf-8") as f:
-                    json.dump(elements, f, indent=2, ensure_ascii=False)
-                logger.info("Cached unified outputs for '%s'", pdf_path.name)
-            except Exception as exc:
-                logger.warning("Could not cache unified output: %s", exc)
+                    logger.warning("Could not cache unified output: %s", exc)
+            else:
+                records = records or []
+                elements = elements or []
+        else:
+            _, page_map = self._get_prune_plan(pdf_path)
+            elements = self._remap_elements_pages(elements, page_map)
+            # Sync cache_elements if elements were remapped from an older unmapped cache
+            if cache_elements.exists() and any(el.get("metadata", {}).get("_pages_remapped") for el in elements):
+                try:
+                    with open(cache_elements, "w", encoding="utf-8") as f:
+                        json.dump(elements, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
 
         # ── Validate marks hierarchy ──────────────────────────────────────────
         if records:
@@ -738,3 +1143,108 @@ class UnifiedPipeline:
             "json_path": json_path,
             "manifest_path": manifest_path,
         }
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def run(
+        self,
+        pdf_path: Path,
+        category: PaperCategory,
+        meta: dict[str, Any],
+        output_dir: Path,
+        syllabus_csv: Path | None = None,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Execute the unified pipeline for one PDF.
+
+        Returns a dict with:
+          "records"       – list of structured question/answer dicts
+          "manifest"      – list of visual manifest entry dicts
+          "json_path"     – Path to the saved canonical JSON
+          "manifest_path" – Path to the saved manifest.json
+        """
+        pdf_path = Path(pdf_path).resolve()
+        output_dir = Path(output_dir).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # ── Cache check ───────────────────────────────────────────────────────
+        cache_text = pdf_path.parent / f"{pdf_path.stem}_unified_text.json"
+        cache_elements = pdf_path.parent / f"{pdf_path.stem}_unified_elements.json"
+
+        records: list[dict[str, Any]] = []
+        elements: list[dict[str, Any]] = []
+
+        if not force and cache_text.exists() and cache_elements.exists():
+            try:
+                with open(cache_text, encoding="utf-8") as f:
+                    records = json.load(f)
+                with open(cache_elements, encoding="utf-8") as f:
+                    elements = json.load(f)
+                logger.info(
+                    "Loaded %d records and %d elements from cache for '%s'",
+                    len(records), len(elements), pdf_path.name,
+                )
+                return self.complete_pipeline_work(
+                    pdf_path=pdf_path,
+                    output_dir=output_dir,
+                    records=records,
+                    elements=elements,
+                    category=category,
+                )
+            except Exception as exc:
+                logger.warning("Cache read error: %s — re-running API call", exc)
+                records, elements = [], []
+
+        # ── Load syllabus ─────────────────────────────────────────────────────
+        syllabus_text = ""
+        if syllabus_csv and syllabus_csv.exists():
+            try:
+                units = SyllabusLoader.load_syllabus(syllabus_csv)
+                syllabus_text = SyllabusLoader.format_syllabus_for_prompt(units)
+                logger.info("Loaded syllabus: %d units from '%s'", len(units), syllabus_csv.name)
+            except Exception as exc:
+                logger.warning("Could not load syllabus '%s': %s", syllabus_csv, exc)
+
+        schema, prompt = self._build_schema_and_prompt(category, meta, syllabus_text)
+
+        # ── Upload pruned PDF ─────────────────────────────────────────────────
+        pruned = self._prune_pdf_bytes(pdf_path)
+        file_input: Any = (pdf_path.name, pruned) if pruned else pdf_path
+
+        # ── Single API call with timeout resilience ───────────────────────────
+        job_result = None
+        try:
+            job_result = self._submit_and_poll(file_input, schema, prompt, pdf_path.name)
+        except JobTimeoutError as te:
+            job_id = te.job_id
+            logger.warning(
+                "Job %s for '%s' timed out after %.1fs. Keeping note of job for endpoint recovery...",
+                job_id, pdf_path.name, te.elapsed,
+            )
+            self.record_timed_out_job(
+                job_id=job_id,
+                pdf_path=pdf_path,
+                category=category,
+                meta=meta,
+                output_dir=output_dir,
+                syllabus_csv=syllabus_csv,
+            )
+            # Attempt recovery using playground endpoint
+            logger.info(
+                "Attempting recovery using endpoint https://transform.unstructured.io/playground/jobs/%s?output=elements...",
+                job_id,
+            )
+            job_result = self.fetch_job_result_from_endpoint(job_id)
+            if job_result is not None:
+                logger.info("Job %s result successfully retrieved from endpoint! Completing remaining work...", job_id)
+                self.mark_timed_out_job_completed(job_id)
+            else:
+                raise
+
+        return self.complete_pipeline_work(
+            pdf_path=pdf_path,
+            output_dir=output_dir,
+            job_result=job_result,
+            category=category,
+        )

@@ -87,61 +87,116 @@ This automatically sets up the 6 relational tables (`subjects`, `papers`, `quest
 ### Example: Complete Workflow for O-Level Physics (5054)
 
 #### Stage 1: Scrape Past Papers & Mark Schemes
+
+The EdGenie scraper operates on a **subject code-only** model (`--code` / `-c`), automatically resolving qualification level (O-Level vs AS/A-Level) and subject title via the built-in registry. It uses the hierarchical **`PapaCambridgeNavigator`** to locate official subject DOM containers, map active sessions, and extract direct download links, reinforced by slug anomaly handling and automatic post-scraping prefix validation.
+
+##### A. Single Session Scraping Command
 ```bash
-# Scrape O-Level Physics (5054) papers from 2010 to 2024
-edgenie-scraper scrape \
-    --level o-level \
-    --subject physics \
-    --code 5054 \
-    --year-start 2010 \
-    --year-end 2024
+# Scrape a single session for Physics 5054 (code-only; level and subject auto-resolved)
+edgenie-scraper scrape --code 5054 --year 2023 --session jun
 ```
+
+##### B. Complete Multi-Year Directory Scraping Command
+```bash
+# Scrape full directory of papers across multiple years and sessions
+edgenie-scraper scrape \
+    --code 5054 \
+    --year-start 2015 \
+    --year-end 2024 \
+    --session jun \
+    --session nov
+```
+
+##### C. Directory Inspection & Validation Commands
+```bash
+# Validate downloaded PDF prefixes in session directories (deletes corrupted/mismatched folders)
+edgenie-scraper validate --code 5054 --year-start 2015 --year-end 2024
+
+# List all downloaded files and scrape manifests for a subject directory
+edgenie-scraper list-papers --code 5054 --year 2023
+```
+
+---
 
 #### Stage 2: Unified 3-in-1 Extraction & Classification
 
-A single call to `edgenie-unified` (or `edgenie-extractor`) submits the PDF to the Unstructured.io Transform API with strict OpenAI-compliant JSON schemas and the official Cambridge syllabus reference:
+A single call to `edgenie-unified` submits the PDF to the Unstructured.io Transform API with strict OpenAI-compliant JSON schemas and official Cambridge syllabus reference:
 
 1. **Text Extraction**: Extracts full question stems, nested sub-parts (`(a)`, `(b)(i)`, etc.), mark allocations, and options (A/B/C/D for MCQs).
 2. **Visual Bounding Boxes**: Detects layout bounding boxes for diagrams, graphs, circuits, and tables in the same cloud pass.
 3. **Syllabus Classification**: Inlines the subject syllabus CSV directly into the prompt so Unit, Topic, Sub-topic, Difficulty, and Command Words are classified simultaneously.
 4. **Local PyMuPDF Cropping**: Filters cover-page logos and header/footer artifacts, crops visual assets at 300 DPI, and patches relative image paths directly into the question JSON tree.
 
+##### A. Single PDF Commands (`extract` / `extract-visuals-text-and-classify`)
 ```bash
 # Single exam paper (syllabus auto-discovered from syllabi/ directory)
-edgenie-unified extract-visuals-text-and-classify \
-    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf
+edgenie-unified extract --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf
 
-# Or explicitly pass the syllabus CSV
-edgenie-unified extract-visuals-text-and-classify \
+# Explicit syllabus CSV and force re-extraction (bypassing local cache)
+edgenie-unified extract \
     --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf \
-    --syllabus syllabi/PHYSICS_5054.csv
-
-# Force re-extraction (bypassing local cache)
-edgenie-unified extract-visuals-text-and-classify \
-    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf \
+    --syllabus syllabi/PHYSICS_5054.csv \
     --force
+
+# Custom DPI or paper type override
+edgenie-unified extract \
+    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_12.pdf \
+    --type mcq \
+    --dpi 300
+```
+*(Note: `edgenie-unified extract-visuals-text-and-classify` and `edgenie-extractor extract` are identical aliases.)*
+
+##### B. Complete Directory Batch Extraction Commands (`extract-dir`)
+```bash
+# Batch extract an entire session directory
+edgenie-unified extract-dir --dir pipeline/storage/5054/2023/jun/
+
+# Batch extract an entire multi-year subject directory tree
+edgenie-unified extract-dir --dir pipeline/storage/5054/
+
+# Force re-extraction across directory with custom DPI
+edgenie-unified extract-dir --dir pipeline/storage/5054/2023/jun/ --force --dpi 300
 ```
 
-*(Note: `edgenie-extractor extract-visuals-text-and-classify` is an identical alias.)*
+> **Directory Processing Features**:
+> - Recursively discovers all question papers (`_qp_`) and mark schemes (`_ms_`).
+> - Automatically ignores non-exam files: Examiner Reports (`_er`), Grade Thresholds (`_gt`), Confidential Instructions (`_ci`), and Syllabus Guides (`_sy`).
+> - Auto-detects paper category (Essay QP, MCQ QP, Essay MS, MCQ MS) and resolves syllabus CSV per subject code.
+##### C. Job Timeout Recovery Commands (`recover-job` / `recover-timed-out`)
+```bash
+# Recover a specific timed-out job via playground endpoint and complete processing
+edgenie-unified recover-job \
+    --job-id b60382ec-1f13-4a8d-9946-d7171d977e9a \
+    --pdf pipeline/storage/5054/2023/jun/5054_s23_qp_22.pdf
+
+# Automatically recover all pending timed-out jobs noted in timed_out_jobs.json
+edgenie-unified recover-timed-out --file timed_out_jobs.json
+```
+
+---
 
 #### Stage 3: PostgreSQL Database Ingestion & Cloud Asset Hosting
 
 Stage 3 is decoupled — you can ingest records directly into PostgreSQL without requiring cloud credentials:
 
+##### A. Single Paper / JSON Commands (`db-paper`)
 ```bash
 # Ingest single paper JSON and visual manifest into PostgreSQL
 edgenie-ingestor db-paper --json pipeline/storage/5054/2023/jun/5054_s23_qp_22.json
+```
 
+##### B. Complete Directory Commands (`db-dir`, `storage-dir`, `full-sync`)
+```bash
 # Ingest all extracted papers in a directory tree into PostgreSQL
 edgenie-ingestor db-dir --dir pipeline/storage/5054
 
 # View current database record counts across all PostgreSQL tables
 edgenie-ingestor db-stats
 
-# (Optional) Upload all PDFs and visual images to Firebase Storage (assets.edgenie.io)
+# (Optional) Upload all PDFs and visual images in a directory to Firebase Storage CDN
 edgenie-ingestor storage-dir --dir pipeline/storage/5054
 
-# (Optional) Full synchronization (both Firebase upload and PostgreSQL ingestion)
+# (Optional) Complete full sync (both Firebase CDN upload and PostgreSQL ingestion)
 edgenie-ingestor full-sync --dir pipeline/storage/5054
 ```
 

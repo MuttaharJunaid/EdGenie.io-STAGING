@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,7 @@ import pymupdf as fitz
 logger = logging.getLogger(__name__)
 
 
-class PaperCategory(str, Enum):
+class PaperCategory(StrEnum):
     MCQ_QP = "mcq_qp"
     MCQ_MS = "mcq_ms"
     ESSAY_QP = "essay_qp"
@@ -32,7 +32,6 @@ def parse_caie_filename(filename: str) -> dict[str, Any]:
     e.g. '7707_s25_qp_21.pdf', '5054_w23_ms_12.pdf', '0580_m22_qp_42.pdf'
     Returns dict with subject_code, year, session, variant, paper_number, doc_type.
     """
-    name = Path(filename).name
     stem = Path(filename).stem.lower()
 
     subject_code = "unknown"
@@ -44,7 +43,7 @@ def parse_caie_filename(filename: str) -> dict[str, Any]:
 
     # Pattern: <subject>_<session_letter><2-digit year>_<type>_<variant>
     match = re.search(
-        r"^([0-9]{4})_([a-z])([0-9]{2})_([a-z]{2})(?:_([0-9]{1,2}))?",
+        r"(?:^|_)(\d{4})_([a-z])(\d{2})_([a-z]{2})(?:_(\d{1,2}))?",
         stem,
     )
     if match:

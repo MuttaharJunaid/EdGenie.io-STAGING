@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class SubjectRegistry:
         for lvl in ("o-level", "as-and-a-level"):
             level_dict = data.get(lvl, {})
             if clean_code in level_dict:
-                return level_dict[clean_code]
+                return cast(dict[str, Any], level_dict[clean_code])
         return None
 
     @classmethod
@@ -75,7 +75,7 @@ class SubjectRegistry:
         if code:
             clean_code = str(code).strip()
             if clean_code in level_dict:
-                return level_dict[clean_code]
+                return cast(dict[str, Any], level_dict[clean_code])
 
         # 2. Subject name / slug lookup
         if subject_name:
@@ -83,29 +83,29 @@ class SubjectRegistry:
 
             # Direct key match
             if clean_name in level_dict:
-                return level_dict[clean_name]
+                return cast(dict[str, Any], level_dict[clean_name])
 
             # Search by code embedded in subject_name (e.g. 'mathematics-4024' or '4024')
             code_in_name = re.search(r"(\d{4})", clean_name)
             if code_in_name and code_in_name.group(1) in level_dict:
-                return level_dict[code_in_name.group(1)]
+                return cast(dict[str, Any], level_dict[code_in_name.group(1)])
 
             # Partial match on subject_slug or title
             keywords = [k for k in re.split(r"[-_\s]+", clean_name) if k and k not in {"level", "o", "a", "as"}]
             if keywords:
                 for key, entry in level_dict.items():
-                    slug = entry.get("subject_slug", "").lower()
-                    title = entry.get("title", "").lower()
+                    slug = str(entry.get("subject_slug", "")).lower()
+                    title = str(entry.get("title", "")).lower()
                     if all(kw in slug or kw in title for kw in keywords):
-                        return entry
+                        return cast(dict[str, Any], entry)
 
                 # Secondary fallback: match any keyword if unique
                 matches = [
                     entry for key, entry in level_dict.items()
-                    if any(kw in entry.get("subject_slug", "").lower() for kw in keywords)
+                    if any(kw in str(entry.get("subject_slug", "")).lower() for kw in keywords)
                 ]
                 if len(matches) == 1:
-                    return matches[0]
+                    return cast(dict[str, Any], matches[0])
 
         return None
 
@@ -125,7 +125,7 @@ class SubjectRegistry:
         """
         entry = cls.get_entry(level=level, code=code, subject_name=subject_name)
         if entry and "subject_slug" in entry:
-            return entry["subject_slug"]
+            return str(entry["subject_slug"])
 
         # Fallback slug construction
         parts = []

@@ -18,26 +18,6 @@ POSTGRES_URI = os.getenv(
 )
 
 
-SUBJECT_NAME_MAP = {
-    "5054": ("Physics", "O-Level"),
-    "5070": ("Chemistry", "O-Level"),
-    "5090": ("Biology", "O-Level"),
-    "4024": ("Mathematics", "O-Level"),
-    "2210": ("Computer Science", "O-Level"),
-    "2281": ("Economics", "O-Level"),
-    "7115": ("Business Studies", "O-Level"),
-    "7707": ("Accounting", "O-Level"),
-    "1123": ("English Language", "O-Level"),
-    "9702": ("Physics", "A-Level"),
-    "9701": ("Chemistry", "A-Level"),
-    "9700": ("Biology", "A-Level"),
-    "9709": ("Mathematics", "A-Level"),
-    "9618": ("Computer Science", "A-Level"),
-    "9708": ("Economics", "A-Level"),
-    "9609": ("Business", "A-Level"),
-}
-
-
 SCHEMA_SQL = """
 -- 1. Subjects Table
 CREATE TABLE IF NOT EXISTS subjects (
@@ -82,8 +62,8 @@ CREATE TABLE IF NOT EXISTS questions (
     question_number_formatted VARCHAR(100),
     question_text TEXT NOT NULL,
     marks INT DEFAULT 1,
-    unit VARCHAR(50) DEFAULT '',
-    topic VARCHAR(50) DEFAULT '',
+    unit VARCHAR(100) DEFAULT '',
+    topic VARCHAR(255) DEFAULT '',
     topic_name VARCHAR(255) DEFAULT '',
     sub_topics JSONB DEFAULT '[]'::jsonb,
     difficulty_score INT DEFAULT 0,
@@ -172,7 +152,7 @@ class PostgresClient:
     def __init__(self, uri: str = POSTGRES_URI):
         self.uri = uri
 
-    def get_connection(self) -> psycopg.Connection:
+    def get_connection(self) -> psycopg.Connection[dict[str, Any]]:
         """Opens and returns a new connection to PostgreSQL."""
         try:
             conn = psycopg.connect(self.uri, autocommit=True, row_factory=dict_row)
@@ -194,9 +174,9 @@ class PostgresClient:
         if entry:
             raw_title = entry.get("title") or entry.get("subject_slug") or f"Subject {subject_code}"
             name = re.sub(r"\s*[-–(]?\s*\d{4}\s*\)?\s*$", "", raw_title).strip()
-            level = "A-Level" if "a-level" in entry.get("level", "").lower() else "O-Level"
+            level = "A-Level" if "a-level" in str(entry.get("level", "")).lower() else "O-Level"
         else:
-            name, level = SUBJECT_NAME_MAP.get(subject_code, (f"Subject {subject_code}", "O-Level"))
+            name, level = f"Subject {subject_code}", "O-Level"
         sql = """
         INSERT INTO subjects (subject_code, subject_name, level, updated_at)
         VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
